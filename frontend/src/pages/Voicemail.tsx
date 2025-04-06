@@ -79,6 +79,9 @@ interface VoicemailItem {
   lockingScript: string;
   redemptionTime?: number;
   senderName?: string;
+  metadata?: {
+    creationTime?: number;
+  };
 }
 
 // Define sort options
@@ -335,7 +338,10 @@ const Voicemail: React.FC = () => {
               audioUrl,
               message: decryptedMessage,
               satoshis: voicemail.satoshis || 0,
-              lockingScript: lockingScript.toHex() // Convert LockingScript to string
+              lockingScript: lockingScript.toHex(), // Convert LockingScript to string
+              metadata: {
+                creationTime: timestamp
+              }
             } as VoicemailItem
           } catch (error) {
             console.error('Error decrypting voicemail:', error)
@@ -587,7 +593,10 @@ const Voicemail: React.FC = () => {
               audioUrl,
               message: decryptedMessage,
               satoshis: voicemail.satoshis || 0,
-              lockingScript: lockingScript.toHex()
+              lockingScript: lockingScript.toHex(),
+              metadata: {
+                creationTime: timestamp
+              }
             } as VoicemailItem
           } catch (error) {
             console.error('Error decrypting sent voicemail:', error)
@@ -911,6 +920,12 @@ const Voicemail: React.FC = () => {
           outpoint: selectedVoicemail.id,
           unlockingScriptLength: 73
         }],
+        outputs: archive ? [{
+          lockingScript: LockingScript.fromHex(selectedVoicemail?.lockingScript || '').toHex(),
+          satoshis: 1, // Use 1 satoshi for the archived copy
+          basket: 'p2p voicemail archived',
+          outputDescription: `Archived voicemail from ${selectedVoicemail?.sender || 'unknown'}`
+        }] : [],
         options: {
           randomizeOutputs: false
         }
@@ -949,6 +964,71 @@ const Voicemail: React.FC = () => {
       
       // Remove the redeemed voicemail from the list
       setVoicemails(voicemails.filter(v => v.id !== selectedVoicemail.id))
+      
+      // If we archived the voicemail, refresh the archived voicemails list
+      if (archive) {
+        fetchArchivedVoicemails()
+      }
+
+      // Check if there's a copy in the sent folder and remove it
+      const sentVoicemailsFromBasket = await walletClient.listOutputs({
+        basket: 'p2p voicemail sent',
+        include: 'entire transactions'
+      })
+
+      // Find the matching sent voicemail by comparing the locking scripts
+      const sentVoicemail = sentVoicemailsFromBasket.outputs.find(
+        (voicemail: any) => voicemail.outpoint.split('.')[0] === txid
+      )
+
+      if (sentVoicemail) {
+        // Create a transaction to forget the sent copy
+        const { signableTransaction: forgetTx } = await walletClient.createAction({
+          description: `Forget sent copy of redeemed voicemail`,
+          inputBEEF: sentVoicemailsFromBasket.BEEF as number[],
+          inputs: [{
+            inputDescription: 'Forget sent voicemail copy',
+            outpoint: sentVoicemail.outpoint,
+            unlockingScriptLength: 73
+          }],
+          outputs: [], // No outputs - just redeem the satoshis
+          options: {
+            randomizeOutputs: false
+          }
+        })
+
+        if (forgetTx === undefined) {
+          throw new Error('Failed to create forget transaction')
+        }
+
+        const forgetPartialTx = Transaction.fromBEEF(forgetTx.tx)
+        
+        // Unlock the PushDrop token for the sent copy
+        const forgetUnlocker = new PushDrop(walletClient).unlock(
+          [0, 'p2p voicemail'],
+          '1',
+          'self',
+          'all',
+          false,
+          1, // 1 satoshi for sent copies
+          LockingScript.fromHex(sentVoicemail.lockingScript || '')
+        )
+        
+        const forgetUnlockingScript = await forgetUnlocker.sign(forgetPartialTx, 0)
+        
+        // Sign the forget transaction
+        await walletClient.signAction({
+          reference: forgetTx.reference,
+          spends: {
+            0: {
+              unlockingScript: forgetUnlockingScript.toHex()
+            }
+          }
+        })
+
+        // Refresh the sent voicemails list
+        fetchSentVoicemails()
+      }
       
       // Close the dialog
       setRedeemOpen(false)
@@ -2949,7 +3029,7 @@ const Voicemail: React.FC = () => {
                               </div>
                             )}
                             <div style={{ marginTop: '4px' }}>
-                                Redeemed on {new Date(voicemail.redemptionTime || 0).toLocaleString()}
+                                Created on {new Date(voicemail.timestamp).toLocaleString()}
                             </div>
                             <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                               <Button 
