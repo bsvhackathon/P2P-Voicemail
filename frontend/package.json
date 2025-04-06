@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@bsv/identity-react": "^1.0.8",
+    "@bsv/p2p": "^1.0.13",
     "@bsv/sdk": "^1.4.15",
     "@bsv/uhrp-react": "^1.0.1",
     "@emotion/react": "^11.14.0",

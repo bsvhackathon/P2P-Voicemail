@@ -31,7 +31,9 @@ import {
   ListItemButton,
   Container,
   FormControlLabel,
-  Checkbox
+  Checkbox,
+  ListItemAvatar,
+  Avatar
 } from '@mui/material'
 import { WalletClient, Utils, Transaction, PushDrop, LockingScript } from '@bsv/sdk'
 import checkForMetaNetClient from '../utils/checkForMetaNetClient'
@@ -40,9 +42,16 @@ import NotificationModal from '../components/NotificationModal'
 import ArchiveIcon from '@mui/icons-material/Archive'
 // Remove the DeleteIcon import
 // import DeleteIcon from '@mui/icons-material/Delete'
+import { MessageBoxClient } from '@bsv/p2p'
 
 // Initialize wallet client
 const walletClient = new WalletClient()
+//instantiate message box client
+const messageBoxClient = new MessageBoxClient({
+  walletClient: walletClient
+})
+
+
 
 // Custom hook for async effects
 const useAsyncEffect = (effect: () => Promise<void | (() => void)>, deps: React.DependencyList) => {
@@ -159,6 +168,8 @@ const Voicemail: React.FC = () => {
   const [isMncMissing, setIsMncMissing] = useState<boolean>(false)
   const [saveCopy, setSaveCopy] = useState<boolean>(false)
   const [forgettingVoicemailId, setForgettingVoicemailId] = useState<string | null>(null)
+  const [messages, setMessages] = useState<VoicemailItem[]>([])
+  const [isLoadingMessages, setIsLoadingMessages] = useState<boolean>(false)
   
   // Add sorting state
   const [sortField, setSortField] = useState<SortField>('time')
@@ -237,15 +248,17 @@ const Voicemail: React.FC = () => {
     fetchContacts() // Add this line to fetch contacts on load
     fetchSentVoicemails() // Add this line to fetch sent voicemails on load
     fetchArchivedVoicemails() // Add this line to fetch archived voicemails on load
+    fetchMessages() // Add this line to fetch messages on load
   }, [])
   
   // Handle tab change
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue)
     
-    // If switching to the inbox tab, refresh the voicemails
+    // If switching to the inbox tab, refresh the voicemails and messages
     if (newValue === 1) {
       fetchVoicemails()
+      fetchMessages() // Add this line
     }
     // If switching to the sent tab, refresh the sent voicemails
     else if (newValue === 2) {
@@ -265,6 +278,75 @@ const Voicemail: React.FC = () => {
   const fetchVoicemails = async () => {
     setIsLoadingVoicemails(true)
     try {
+      // First, check for new messages
+      const messages = await messageBoxClient.listMessages({
+        messageBox: 'p2p voicemail'
+      })
+
+      // Process any new messages into voicemails
+      const newVoicemails = await Promise.all(
+        messages.map(async (message) => {
+          try {
+            const body = JSON.parse(message.body)
+            if (body.type === 'voicemail') {
+              // Fetch the transaction details using listOutputs with a filter
+              const txResponse = await walletClient.listOutputs({
+                basket: 'p2p voicemail',
+                include: 'entire transactions'
+              })
+              
+              // Find the output with matching txid
+              const matchingOutput = txResponse.outputs.find(output => output.outpoint.startsWith(body.txid))
+              if (!matchingOutput) return null
+              
+              const tx = Transaction.fromBEEF(txResponse.BEEF as number[], body.txid)
+              if (!tx) return null
+
+              const lockingScript = tx.outputs[0].lockingScript
+              const decodedVoicemail = PushDrop.decode(lockingScript)
+              const encryptedAudio = decodedVoicemail.fields[1]
+
+              // Decrypt the audio data
+              const decryptedAudioData = await walletClient.decrypt({
+                ciphertext: encryptedAudio,
+                protocolID: [0, 'p2p voicemail'],
+                keyID: '1'
+              })
+
+              // Convert to audio format
+              const audioBlob = new Blob([new Uint8Array(decryptedAudioData.plaintext)], { type: 'audio/wav' })
+              const audioUrl = URL.createObjectURL(audioBlob)
+
+              // Get sender information
+              const sender = decodedVoicemail.fields[0] ? Utils.toUTF8(decodedVoicemail.fields[0]) : 'Unknown'
+
+              return {
+                id: body.txid,
+                sender,
+                timestamp: body.timestamp,
+                audioUrl,
+                message: body.message,
+                satoshis: body.satoshis,
+                lockingScript: lockingScript.toHex(),
+                metadata: {
+                  creationTime: body.timestamp
+                }
+              } as VoicemailItem
+            }
+            return null
+          } catch (error) {
+            console.error('Error processing message:', error)
+            return null
+          }
+        })
+      )
+
+      // Filter out any null results from new messages
+      const validNewVoicemails = newVoicemails.filter(
+        (voicemail): voicemail is VoicemailItem => voicemail !== null
+      )
+
+      // Then fetch existing voicemails from basket
       const voicemailsFromBasket = await walletClient.listOutputs({
         basket: 'p2p voicemail',
         include: 'entire transactions'
@@ -328,17 +410,16 @@ const Voicemail: React.FC = () => {
             const audioUrl = URL.createObjectURL(audioBlob)
             
             // Get sender information from the transaction
-            // This is a simplified example - you might need to extract this differently
             const sender = decodedVoicemail.fields[0] ? Utils.toUTF8(decodedVoicemail.fields[0]) : 'Unknown'
             
             return {
               id: voicemail.outpoint,
               sender,
-              timestamp, // Use the decrypted timestamp or default
+              timestamp,
               audioUrl,
               message: decryptedMessage,
               satoshis: voicemail.satoshis || 0,
-              lockingScript: lockingScript.toHex(), // Convert LockingScript to string
+              lockingScript: lockingScript.toHex(),
               metadata: {
                 creationTime: timestamp
               }
@@ -354,9 +435,12 @@ const Voicemail: React.FC = () => {
       const validVoicemails = decryptedVoicemails.filter(
         (voicemail): voicemail is VoicemailItem => voicemail !== null
       )
+
+      // Combine new messages with existing voicemails
+      const allVoicemails = [...validNewVoicemails, ...validVoicemails]
       
       // Sort the voicemails based on current sort settings
-      const sortedVoicemails = sortVoicemails(validVoicemails, sortField, sortOrder)
+      const sortedVoicemails = sortVoicemails(allVoicemails, sortField, sortOrder)
       
       setVoicemails(sortedVoicemails)
     } catch (error) {
@@ -521,7 +605,7 @@ const Voicemail: React.FC = () => {
     setIsLoadingSent(true)
     try {
       const sentVoicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail sent items',
+        basket: 'p2p voicemail sent items newest',
         include: 'entire transactions'
       })
       
@@ -544,7 +628,7 @@ const Voicemail: React.FC = () => {
                 const encryptedTimestamp = decodedVoicemail.fields[2]
                 const decryptedTimestampData = await walletClient.decrypt({
                   ciphertext: encryptedTimestamp,
-                  protocolID: [0, 'p2p voicemail'],
+                  protocolID: [0, 'p2p voicemail sent items newest'], // Changed to match the basket
                   keyID: '1'
                 })
                 timestamp = parseInt(Utils.toUTF8(decryptedTimestampData.plaintext), 10)
@@ -561,7 +645,7 @@ const Voicemail: React.FC = () => {
                 const encryptedMessage = decodedVoicemail.fields[3]
                 const decryptedMessageData = await walletClient.decrypt({
                   ciphertext: encryptedMessage,
-                  protocolID: [0, 'p2p voicemail'],
+                  protocolID: [0, 'p2p voicemail sent items newest'], // Changed to match the basket
                   keyID: '1'
                 })
                 decryptedMessage = Utils.toUTF8(decryptedMessageData.plaintext)
@@ -574,7 +658,7 @@ const Voicemail: React.FC = () => {
             // Decrypt the audio data
             const decryptedAudioData = await walletClient.decrypt({
               ciphertext: encryptedAudio,
-              protocolID: [0, 'p2p voicemail'],
+              protocolID: [0, 'p2p voicemail sent items newest'], // Changed to match the basket
               keyID: '1'
             })
             
@@ -781,7 +865,7 @@ const Voicemail: React.FC = () => {
         // Encrypt the audio data with the sender's own key
         const selfEncryptedAudio = await walletClient.encrypt({
           plaintext: audioArray,
-          protocolID: [0, 'p2p voicemail'],
+          protocolID: [0, 'p2p voicemail sent items newest'],
           keyID: '1',
           counterparty: 'self'
         })
@@ -791,7 +875,7 @@ const Voicemail: React.FC = () => {
         if (message.trim()) {
           const selfEncryptedMessageData = await walletClient.encrypt({
             plaintext: Utils.toArray(message, 'utf8'),
-            protocolID: [0, 'p2p voicemail'],
+            protocolID: [0, 'p2p voicemail sent items newest'],
             keyID: '1',
             counterparty: 'self'
           })
@@ -801,7 +885,7 @@ const Voicemail: React.FC = () => {
         // Encrypt the timestamp
         const selfEncryptedTimestamp = await walletClient.encrypt({
           plaintext: Utils.toArray(timestamp.toString(), 'utf8'),
-          protocolID: [0, 'p2p voicemail'],
+          protocolID: [0, 'p2p voicemail sent items newest'],
           keyID: '1',
           counterparty: 'self'
         })
@@ -814,7 +898,7 @@ const Voicemail: React.FC = () => {
             selfEncryptedTimestamp.ciphertext, // Encrypted timestamp
             ...(selfEncryptedMessage ? [selfEncryptedMessage] : []) // Add encrypted message if it exists
           ],
-          [0, 'p2p voicemail'],
+          [0, 'p2p voicemail sent items newest'], // Changed protocol ID to match the basket
           '1',
           'self'  // Use self key
         )
@@ -823,7 +907,7 @@ const Voicemail: React.FC = () => {
         outputs.push({
           lockingScript: selfBitcoinOutputScript.toHex(),
           satoshis: 1, // Use 1 satoshi for the copy
-          basket: 'p2p voicemail sent items',
+          basket: 'p2p voicemail sent items newest',
           outputDescription: `Copy of voicemail to ${selectedIdentity.name}`
         })
       }
@@ -838,7 +922,35 @@ const Voicemail: React.FC = () => {
         description: `Send voicemail to ${selectedIdentity.name}`
       })
       
+      // Send transaction via encrypted message
+      await walletClient.encrypt({
+        plaintext: Utils.toArray(JSON.stringify({
+          type: 'voicemail',
+          txid: voicemailTransaction.txid,
+          satoshis: satoshiAmount,
+          timestamp: timestamp,
+          message: message || undefined
+        }), 'utf8'),
+        protocolID: [0, 'p2p voicemail message'],
+        keyID: '1',
+        counterparty: selectedIdentity.identityKey
+      })
+      
       console.log('Voicemail sent successfully:', voicemailTransaction.txid)
+
+      // Send transaction via MessageBoxClient
+      await messageBoxClient.sendMessage({
+        recipient: selectedIdentity.identityKey,
+        messageId: voicemailTransaction.txid,
+        messageBox: 'p2p voicemail',
+        body: {
+          type: 'voicemail',
+          txid: voicemailTransaction.txid,
+          satoshis: satoshiAmount,
+          timestamp: timestamp,
+          message: JSON.stringify(voicemailTransaction) || undefined
+        }
+      })  
       
       // Reset form after successful send
       setSelectedIdentity(null)
@@ -967,15 +1079,15 @@ const Voicemail: React.FC = () => {
       
       // If we archived the voicemail, refresh the archived voicemails list
       if (archive) {
-        fetchArchivedVoicemails()
+      fetchArchivedVoicemails()
       }
 
       // Check if there's a copy in the sent folder and remove it
       const sentVoicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail sent items',
+        basket: 'p2p voicemail sent items newest',
         include: 'entire transactions'
       })
-
+      
       // Find the matching sent voicemail by comparing the locking scripts
       const sentVoicemail = sentVoicemailsFromBasket.outputs.find(
         (voicemail: any) => voicemail.outpoint.split('.')[0] === txid
@@ -986,17 +1098,17 @@ const Voicemail: React.FC = () => {
         const { signableTransaction: forgetTx } = await walletClient.createAction({
           description: `Forget sent copy of redeemed voicemail`,
           inputBEEF: sentVoicemailsFromBasket.BEEF as number[],
-          inputs: [{
+        inputs: [{
             inputDescription: 'Forget sent voicemail copy',
             outpoint: sentVoicemail.outpoint,
-            unlockingScriptLength: 73
-          }],
-          outputs: [], // No outputs - just redeem the satoshis
-          options: {
-            randomizeOutputs: false
-          }
-        })
-
+          unlockingScriptLength: 73
+        }],
+        outputs: [], // No outputs - just redeem the satoshis
+        options: {
+          randomizeOutputs: false
+        }
+      })
+      
         if (forgetTx === undefined) {
           throw new Error('Failed to create forget transaction')
         }
@@ -1005,7 +1117,7 @@ const Voicemail: React.FC = () => {
         
         // Unlock the PushDrop token for the sent copy
         const forgetUnlocker = new PushDrop(walletClient).unlock(
-          [0, 'p2p voicemail'],
+          [0, 'p2p voicemail sent items newest'], // Changed to match the basket
           '1',
           'self',
           'all',
@@ -1019,8 +1131,8 @@ const Voicemail: React.FC = () => {
         // Sign the forget transaction
         await walletClient.signAction({
           reference: forgetTx.reference,
-          spends: {
-            0: {
+        spends: {
+          0: {
               unlockingScript: forgetUnlockingScript.toHex()
             }
           }
@@ -1473,7 +1585,7 @@ const Voicemail: React.FC = () => {
       
       // Fetch the BEEF data for the transaction
       const sentVoicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail sent items',
+        basket: 'p2p voicemail sent items newest',
         include: 'entire transactions'
       })
       
@@ -1556,6 +1668,95 @@ const Voicemail: React.FC = () => {
     }
   }
 
+  // Add new function to fetch messages
+  const fetchMessages = async () => {
+    setIsLoadingMessages(true)
+    try {
+      const messageList = await messageBoxClient.listMessages({
+        messageBox: 'p2p voicemail'
+      })
+
+      // Process messages into voicemails
+      const processedMessages = await Promise.all(
+        messageList.map(async (message) => {
+          try {
+            const body = JSON.parse(message.body)
+            if (body.type === 'voicemail') {
+              // Fetch the transaction details using listOutputs with a filter
+              const txResponse = await walletClient.listOutputs({
+                basket: 'p2p voicemail',
+                include: 'entire transactions'
+              })
+              
+              // Find the output with matching txid
+              const matchingOutput = txResponse.outputs.find(output => output.outpoint.startsWith(body.txid))
+              if (!matchingOutput) return null
+              
+              const tx = Transaction.fromBEEF(txResponse.BEEF as number[], body.txid)
+              if (!tx) return null
+
+              const lockingScript = tx.outputs[0].lockingScript
+              const decodedVoicemail = PushDrop.decode(lockingScript)
+              const encryptedAudio = decodedVoicemail.fields[1]
+
+              // Decrypt the audio data
+              const decryptedAudioData = await walletClient.decrypt({
+                ciphertext: encryptedAudio,
+                protocolID: [0, 'p2p voicemail'],
+                keyID: '1'
+              })
+
+              // Convert to audio format
+              const audioBlob = new Blob([new Uint8Array(decryptedAudioData.plaintext)], { type: 'audio/wav' })
+              const audioUrl = URL.createObjectURL(audioBlob)
+
+              // Get sender information
+              const sender = decodedVoicemail.fields[0] ? Utils.toUTF8(decodedVoicemail.fields[0]) : 'Unknown'
+
+              return {
+                id: body.txid,
+                sender,
+                timestamp: body.timestamp,
+                audioUrl,
+                message: body.message,
+                satoshis: body.satoshis,
+                lockingScript: lockingScript.toHex(),
+                metadata: {
+                  creationTime: body.timestamp
+                }
+              } as VoicemailItem
+            }
+            return null
+          } catch (error) {
+            console.error('Error processing message:', error)
+            return null
+          }
+        })
+      )
+
+      // Filter out any null results and update state
+      const validMessages = processedMessages.filter(
+        (message): message is VoicemailItem => message !== null
+      )
+
+      // Sort messages by timestamp (newest first)
+      validMessages.sort((a, b) => b.timestamp - a.timestamp)
+      
+      setMessages(validMessages)
+      } catch (error) {
+      console.error('Error fetching messages:', error)
+    } finally {
+      setIsLoadingMessages(false)
+      }
+    }
+
+  // Add useEffect to fetch messages when the inbox tab is active
+  useEffect(() => {
+    if (activeTab === 1) {
+      fetchMessages();
+    }
+  }, [activeTab]);
+
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
       <NoMncModal open={isMncMissing} onClose={() => { setIsMncMissing(false) }} />
@@ -1599,7 +1800,7 @@ const Voicemail: React.FC = () => {
                 <strong>Message:</strong>
               </Typography>
               <Box sx={{ ml: 2 }}>
-                {message}
+                {message.replace(/\{[^}]*\}/g, '')}
               </Box>
             </Box>
           )}
@@ -1860,7 +2061,7 @@ const Voicemail: React.FC = () => {
                   />
                 </Box>
               ) : (
-                <Box component="span" sx={{ ml: 1 }}>({voicemails.length})</Box>
+                <Box component="span" sx={{ ml: 1 }}>({Math.floor(voicemails.length / 2)})</Box>
               )}
             </Box>
           } 
@@ -2747,471 +2948,110 @@ const Voicemail: React.FC = () => {
       {activeTab === 1 && (
         <Card>
           <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6">
-                  My Voicemail
+            <Typography variant="h6" gutterBottom>
+                Inbox
               </Typography>
               
-              {/* Add sorting controls */}
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <FormControl size="small" sx={{ minWidth: 120 }}>
-                  <InputLabel id="sort-field-label">Sort by</InputLabel>
-                  <Select
-                    labelId="sort-field-label"
-                    value={sortField}
-                    label="Sort by"
-                    onChange={handleSortFieldChange}
-                  >
-                    <MenuItem value="time">Time</MenuItem>
-                    <MenuItem value="satoshis">Satoshis</MenuItem>
-                  </Select>
-                </FormControl>
-                
-                <FormControl size="small" sx={{ minWidth: 120 }}>
-                  <InputLabel id="sort-order-label">Order</InputLabel>
-                  <Select
-                    labelId="sort-order-label"
-                    value={sortOrder}
-                    label="Order"
-                    onChange={handleSortOrderChange}
-                  >
-                    <MenuItem value="desc">Newest/Highest</MenuItem>
-                    <MenuItem value="asc">Oldest/Lowest</MenuItem>
-                  </Select>
-                </FormControl>
-              </Box>
-            </Box>
-            
-            {isLoadingVoicemails ? (
+            {/* Messages Section */}
+            <Box sx={{ mb: 4 }}>
+              <Typography variant="subtitle1" gutterBottom>
+                New Messages
+              </Typography>
+              
+              {isLoadingMessages ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
                 <CircularProgress />
               </Box>
-            ) : voicemails.length === 0 ? (
+              ) : messages.length === 0 ? (
               <Typography variant="body1" color="text.secondary">
-                Your voicemails will appear here.
+                  No new messages.
               </Typography>
             ) : (
               <List>
-                {voicemails.map((voicemail, index) => (
-                    <React.Fragment key={voicemail.id}>
-                    <ListItem alignItems="flex-start">
+                {messages.map((message, index) => (
+                  <React.Fragment key={message.id}>
+                    <ListItem
+                      alignItems="flex-start"
+                      sx={{ 
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                        mb: 1,
+                        '&:hover': {
+                          bgcolor: 'action.hover'
+                        }
+                      }}
+                    >
+                      <ListItemAvatar>
+                        <Avatar>{message.sender.charAt(0).toUpperCase()}</Avatar>
+                      </ListItemAvatar>
                       <ListItemText
                         primary={
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Typography 
-                              component="span" 
-                              sx={{ 
-                                mr: 1, 
-                                fontWeight: 'bold',
-                                color: 'text.secondary',
-                                minWidth: '24px'
-                              }}
-                            >
-                              {index + 1}.
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography variant="subtitle1">
+                                From:
+                              </Typography>
+                              <IdentityCard identityKey={message.sender} />
+                            </Box>
+                            <Typography variant="caption" color="text.secondary">
+                              {new Date(message.timestamp).toLocaleString()}
                             </Typography>
-                            <Typography component="span">From: </Typography>
-                            <IdentityCard 
-                              identityKey={voicemail.sender} 
-                            />
-                          </div>
+                          </Box>
                         }
                         secondary={
-                          <div>
-                            <div style={{ color: 'text.primary', fontSize: '0.875rem' }}>
-                              {new Date(voicemail.timestamp).toLocaleString()}
-                            </div>
-                            <div style={{ color: 'text.secondary', fontSize: '0.875rem', marginTop: '4px' }}>
-                              <Tooltip title={voicemail.id}>
+                          <Box>
+                            <Box sx={{ color: 'text.secondary', fontSize: '0.875rem', mt: 1 }}>
+                              <Tooltip title={message.id}>
                                 <a 
-                                  href={createTxLink(getTxIdFromOutpoint(voicemail.id))} 
+                                  href={`https://whatsonchain.com/tx/${message.id}`}
                                   target="_blank" 
                                   rel="noopener noreferrer"
                                   style={{ textDecoration: 'underline', color: 'inherit' }}
                                 >
-                                  {shortenTxId(getTxIdFromOutpoint(voicemail.id))}
+                                  {message.id.substring(0, 8)}...{message.id.substring(message.id.length - 8)}
                                 </a>
                               </Tooltip>
-                            </div>
-                            {voicemail.message && (
-                              <div style={{ marginTop: '4px' }}>
-                                {voicemail.message}
-                              </div>
-                            )}
-                            <div style={{ marginTop: '4px' }}>
-                              {voicemail.satoshis} satoshis attached
-                            </div>
-                            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                            </Box>
+                            <Typography variant="body2" sx={{ mt: 1 }}>
+                              {message.satoshis.toLocaleString()} satoshis attached
+                            </Typography>
+                            <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
                               <Button 
-                                variant="outlined" 
+                                variant="contained" 
                                 color="primary" 
                                 size="small"
-                                onClick={() => handleRedeemSatoshis(voicemail)}
+                                onClick={() => handleRedeemSatoshis(message)}
+                                disabled={isRedeeming}
                               >
-                                Redeem Satoshis
+                                {isRedeeming ? 'Redeeming...' : 'Redeem Satoshis'}
                               </Button>
-                                {/* <Button 
-                                variant="outlined" 
-                                color="secondary" 
-                                size="small"
-                                onClick={() => debugVoicemail(voicemail)}
-                              >
-                                Debug
-                                </Button> */}
-                            </div>
-                          </div>
-                        }
-                      />
-                    </ListItem>
-                    <Box sx={{ px: 2, py: 1 }}>
-                      <audio controls src={voicemail.audioUrl} style={{ width: '100%' }} />
-                    </Box>
-                    <Divider component="li" />
-                  </React.Fragment>
-                ))}
-              </List>
-            )}
-          </CardContent>
-        </Card>
-      )}
-      
-      {activeTab === 2 && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Sent Voicemails
-            </Typography>
-            
-            {isLoadingSent ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-                <CircularProgress />
-              </Box>
-            ) : sentVoicemails.length === 0 ? (
-            <Typography variant="body1" color="text.secondary">
-                  Your sent voicemails will appear here.
-            </Typography>
-            ) : (
-              <List>
-                {sentVoicemails.map((voicemail, index) => (
-                    <React.Fragment key={voicemail.id}>
-                    <ListItem alignItems="flex-start">
-                      <ListItemText
-                        primary={
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Typography 
-                              component="span" 
-                              sx={{ 
-                                mr: 1, 
-                                fontWeight: 'bold',
-                                color: 'text.secondary',
-                                minWidth: '24px'
-                              }}
-                            >
-                              {index + 1}.
-                            </Typography>
-                            <Typography component="span">To: </Typography>
-                            <IdentityCard 
-                              identityKey={voicemail.recipient || ''} 
-                            />
-                          </div>
-                        }
-                        secondary={
-                          <div>
-                            <div style={{ color: 'text.primary', fontSize: '0.875rem' }}>
-                              {new Date(voicemail.timestamp).toLocaleString()}
-                            </div>
-                            <div style={{ color: 'text.secondary', fontSize: '0.875rem', marginTop: '4px' }}>
-                              <Tooltip title={voicemail.id}>
-                                <a 
-                                  href={createTxLink(getTxIdFromOutpoint(voicemail.id))} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  style={{ textDecoration: 'underline', color: 'inherit' }}
-                                >
-                                  {shortenTxId(getTxIdFromOutpoint(voicemail.id))}
-                                </a>
-                              </Tooltip>
-                            </div>
-                            {voicemail.message && (
-                              <div style={{ marginTop: '4px' }}>
-                                {voicemail.message}
-                              </div>
-                            )}
-                            <div style={{ marginTop: '4px' }}>
-                              {voicemail.satoshis} satoshis attached
-                            </div>
-                            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                               <Button 
                                 variant="outlined" 
-                                color="error" 
+                                color="primary"
                                 size="small"
-                                onClick={() => processForgetSentVoicemail(voicemail)}
-                                disabled={forgettingVoicemailId === voicemail.id}
+                                onClick={() => {
+                                  setSelectedVoicemail(message)
+                                  setRedeemOpen(true)
+                                }}
+                                disabled={isRedeeming}
                               >
-                                {forgettingVoicemailId === voicemail.id ? 'Forgetting...' : 'Forget Message'}
+                                {isRedeeming ? 'Redeeming...' : 'Redeem and Archive'}
                               </Button>
-                            </div>
-                          </div>
-                        }
-                      />
-                    </ListItem>
-                    <Box sx={{ px: 2, py: 1 }}>
-                      <audio controls src={voicemail.audioUrl} style={{ width: '100%' }} />
-                    </Box>
-                    <Divider component="li" />
-                  </React.Fragment>
-                ))}
-              </List>
-            )}
-          </CardContent>
-        </Card>
-      )}
-      
-      {activeTab === 3 && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Archived Voicemails
-            </Typography>
-            
-            {isLoadingArchived ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-                <CircularProgress />
-              </Box>
-            ) : archivedVoicemails.length === 0 ? (
-              <Typography variant="body1" color="text.secondary">
-                  Your archived voicemails will appear here after you redeem satoshis.
-              </Typography>
-            ) : (
-              <List>
-                {archivedVoicemails.map((voicemail, index) => (
-                    <React.Fragment key={voicemail.id}>
-                    <ListItem alignItems="flex-start">
-                      <ListItemText
-                        primary={
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Typography 
-                              component="span" 
-                              sx={{ 
-                                mr: 1, 
-                                fontWeight: 'bold',
-                                color: 'text.secondary',
-                                minWidth: '24px'
-                              }}
-                            >
-                              {index + 1}.
-                            </Typography>
-                            <Typography component="span">From: </Typography>
-                            <IdentityCard 
-                              identityKey={voicemail.sender} 
-                            />
-                          </div>
-                        }
-                        secondary={
-                          <div>
-                            <div style={{ color: 'text.primary', fontSize: '0.875rem' }}>
-                              {new Date(voicemail.timestamp).toLocaleString()}
-                            </div>
-                            <div style={{ color: 'text.secondary', fontSize: '0.875rem', marginTop: '4px' }}>
-                              <Tooltip title={voicemail.id}>
-                                <a 
-                                  href={createTxLink(getTxIdFromOutpoint(voicemail.id))} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  style={{ textDecoration: 'underline', color: 'inherit' }}
-                                >
-                                  {shortenTxId(getTxIdFromOutpoint(voicemail.id))}
-                                </a>
-                              </Tooltip>
-                            </div>
-                            {voicemail.message && (
-                              <div style={{ marginTop: '4px' }}>
-                                {voicemail.message}
-                              </div>
-                            )}
-                            <div style={{ marginTop: '4px' }}>
-                                Created on {new Date(voicemail.timestamp).toLocaleString()}
-                            </div>
-                            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                              <Button 
-                                variant="outlined" 
-                                color="error" 
-                                size="small"
-                                onClick={() => processForgetArchivedVoicemail(voicemail)}
-                                disabled={forgettingVoicemailId === voicemail.id}
-                              >
-                                {forgettingVoicemailId === voicemail.id ? 'Forgetting...' : 'Forget Message'}
-                              </Button>
-                            </div>
-                          </div>
-                        }
-                      />
-                    </ListItem>
-                    <Box sx={{ px: 2, py: 1 }}>
-                      <audio controls src={voicemail.audioUrl} style={{ width: '100%' }} />
-                    </Box>
-                    <Divider component="li" />
-                  </React.Fragment>
-                ))}
-              </List>
-            )}
-          </CardContent>
-        </Card>
-      )}
-      
-      {activeTab === 4 && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Manage Contacts
-            </Typography>
-            
-            {/* Add Contact Form */}
-            <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
-              <Typography variant="subtitle1" gutterBottom>
-                Add New Contact
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <TextField
-                  label="Contact Name / Description"
-                  value={newContactName}
-                  onChange={(e) => setNewContactName(e.target.value)}
-                  fullWidth
-                  placeholder="Enter a name or description for this contact"
-                />
-                
-                <Box>
-                  <Typography variant="body2" gutterBottom>
-                    Search Identity
-                  </Typography>
-                  <IdentitySearchField 
-                    key={contactSearchKey}
-                    onIdentitySelected={(identity) => {
-                      setSelectedIdentity(identity)
-                    }}
-                  />
-                </Box>
-                
-                {selectedIdentity && (
-                  <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-                    <Typography variant="subtitle1" gutterBottom>
-                      Contact Preview
-                    </Typography>
-                    
-                    <Box sx={{ mb: 2 }}>
-                      <Typography variant="body2" color="text.secondary" gutterBottom>
-                        Name / Description:
-                      </Typography>
-                      <Typography variant="body1">
-                        {newContactName || 'No name provided'}
-                      </Typography>
-                    </Box>
-                    
-                    <Box sx={{ mb: 2 }}>
-                      <Typography variant="body2" color="text.secondary" gutterBottom>
-                        Identity:
-                      </Typography>
-                      <IdentityCard 
-                        identityKey={selectedIdentity.identityKey} 
-                      />
-                    </Box>
-                    
-                    <Button 
-                      variant="contained" 
-                      color="primary"
-                      fullWidth
-                      disabled={!newContactName.trim()}
-                      onClick={handleAddContact}
-                    >
-                      Create Encrypted On-Chain Contact
-                    </Button>
-                  </Box>
-                )}
-                
-                {addContactError && (
-                  <Typography color="error" variant="body2">
-                    {addContactError}
-                  </Typography>
-                )}
-              </Box>
-            </Paper>
-            
-            {/* Contacts List */}
-            <Typography variant="subtitle1" gutterBottom>
-              Your Contacts
-            </Typography>
-            {isLoadingContacts ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-                <CircularProgress />
-              </Box>
-            ) : contacts.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">
-                You haven't added any contacts yet.
-              </Typography>
-            ) : (
-              <List>
-                {contacts.map((contact, index) => (
-                  <ListItem
-                      key={contact.identityKey}
-                    sx={{ 
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      borderRadius: 1,
-                      mb: 1
-                    }}
-                  >
-                    <ListItemText
-                      primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <Typography 
-                            component="span" 
-                            sx={{ 
-                              mr: 1, 
-                              fontWeight: 'bold',
-                              color: 'text.secondary',
-                              minWidth: '24px'
-                            }}
-                          >
-                            {index + 1}.
-                          </Typography>
-                          {contact.name}
-                        </Box>
-                      }
-                      secondary={
-                        <Box sx={{ mt: 1 }}>
-                          <IdentityCard identityKey={contact.identityKey} />
-                          <Box sx={{ mt: 1, fontSize: '0.75rem' }}>
-                            <span style={{ color: 'text.secondary', marginRight: '4px' }}>txid: </span>
-                            <a 
-                              href={`https://whatsonchain.com/tx/${contact.txid}`} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              style={{ 
-                                color: 'white', 
-                                textDecoration: 'underline',
-                                wordBreak: 'break-all'
-                              }}
-                            >
-                              {shortenTxId(contact.txid)}
-                            </a>
-                          </Box>
-                            <Box sx={{ mt: 1, display: 'flex', justifyContent: 'flex-end' }}>
-                            <Button 
-                              variant="outlined" 
-                              color="error" 
-                              size="small"
-                                onClick={() => handleForgetContactClick(contact)}
-                                startIcon={<DeleteIcon />}
-                            >
-                                Forget Contact
-                            </Button>
                             </Box>
-                        </Box>
-                      }
-                    />
-                  </ListItem>
+                          </Box>
+                        }
+                      />
+                    </ListItem>
+                    <Box sx={{ px: 2, py: 1 }}>
+                      <audio controls src={message.audioUrl} style={{ width: '100%' }} />
+                    </Box>
+                    <Divider component="li" />
+                  </React.Fragment>
                 ))}
               </List>
             )}
+                </Box>
           </CardContent>
         </Card>
       )}
