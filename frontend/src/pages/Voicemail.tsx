@@ -521,7 +521,7 @@ const Voicemail: React.FC = () => {
     setIsLoadingSent(true)
     try {
       const sentVoicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail sent',
+        basket: 'p2p voicemail sent items',
         include: 'entire transactions'
       })
       
@@ -823,7 +823,7 @@ const Voicemail: React.FC = () => {
         outputs.push({
           lockingScript: selfBitcoinOutputScript.toHex(),
           satoshis: 1, // Use 1 satoshi for the copy
-          basket: 'p2p voicemail sent',
+          basket: 'p2p voicemail sent items',
           outputDescription: `Copy of voicemail to ${selectedIdentity.name}`
         })
       }
@@ -972,7 +972,7 @@ const Voicemail: React.FC = () => {
 
       // Check if there's a copy in the sent folder and remove it
       const sentVoicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail sent',
+        basket: 'p2p voicemail sent items',
         include: 'entire transactions'
       })
 
@@ -1473,7 +1473,7 @@ const Voicemail: React.FC = () => {
       
       // Fetch the BEEF data for the transaction
       const sentVoicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail sent',
+        basket: 'p2p voicemail sent items',
         include: 'entire transactions'
       })
       
