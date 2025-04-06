@@ -15,14 +15,13 @@
       ]
     },
     {
-      "name": "babbage",
+      "name": "p2pvoicemail",
       "provider": "CARS",
       "CARSCloudURL": "https://cars.babbage.systems",
-      "projectID": "ea98977f72defcf56238a39a35af6875",
+      "projectID": "e42e1a64b1fee160b88e02160d70feec",
       "network": "mainnet",
       "deploy": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "frontendHostingMethod": "HTTPS"
     }
