@@ -1,25 +1,23 @@
 ![voicemail](https://github.com/user-attachments/assets/3f1b4f17-7147-4f29-89ce-01fcba3909f6)
 
-##Live CARS deployment:
+Live CARS deployment:
 frontend.e42e1a64b1fee160b88e02160d70feec.projects.babbage.systems
 
-##P2P Voicemail On Bitcoin
+P2P Voicemail On Bitcoin
 Send encrypted, peer-to-peer, on-chain voicemail with attached micropayments while utilizing your encrypted contact list.
 
 ![CARS](https://github.com/user-attachments/assets/abb11c0b-781d-4c32-9979-4356856a7604)
 
 With these new tools being developed by Project Babbage and others, there are opportunities to make almost everything peer-to-peer.
 
-##Project Incorporates
--Metanet Desktop Client (https://github.com/bitcoin-sv/metanet-desktop)
+Project Incorporates
+-Metanet Desktop Client
 -Output Baskets
 -Micropaymemts
 -IdentitySearchField, Identity, IdentityCard from '@bsv/identity-react'
 -WalletClient, Utils, Transaction, PushDrop, LockingScript from '@bsv/sdk'
 -CARS deployment: frontend.e42e1a64b1fee160b88e02160d70feec.projects.babbage.systems
 
-
-##More Info
 Standard BSV project structure.
 
 Helpful Links:
