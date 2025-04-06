@@ -1,11 +1,11 @@
 ![voicemail](https://github.com/user-attachments/assets/3f1b4f17-7147-4f29-89ce-01fcba3909f6)
 
-**P2P Voicemail On Bitcoin
+P2P Voicemail On Bitcoin
 Send encrypted, peer-to-peer, on-chain voicemail with attached micropayments while utilizing your encrypted contact list.
 
 With these new tools being developed by Project Babbage and others, there are opportunities to make almost everything peer-to-peer.
 
-**Project Incorporates
+Project Incorporates
 -Metanet Desktop Client (https://github.com/bitcoin-sv/metanet-desktop)
 -Output Baskets
 -Micropaymemts
@@ -14,7 +14,7 @@ With these new tools being developed by Project Babbage and others, there are op
 -CARS cloud deployment
 
 
-##More Info
+More Info
 Standard BSV project structure.
 
 Helpful Links:
