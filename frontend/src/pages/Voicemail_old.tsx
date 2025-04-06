@@ -29,7 +29,6 @@ import {
   Tooltip,
   IconButton,
   ListItemButton,
-  Container,
   FormControlLabel,
   Checkbox
 } from '@mui/material'
@@ -37,9 +36,8 @@ import { WalletClient, Utils, Transaction, PushDrop, LockingScript } from '@bsv/
 import checkForMetaNetClient from '../utils/checkForMetaNetClient'
 import NoMncModal from '../components/NoMncModal'
 import NotificationModal from '../components/NotificationModal'
-import ArchiveIcon from '@mui/icons-material/Archive'
-// Remove the DeleteIcon import
-// import DeleteIcon from '@mui/icons-material/Delete'
+//check for metanet client
+// import checkForMetaNetClient from './utils/checkForMetaNetClient'
 
 // Initialize wallet client
 const walletClient = new WalletClient()
@@ -77,8 +75,7 @@ interface VoicemailItem {
   message?: string;
   satoshis: number;
   lockingScript: string;
-  redemptionTime?: number;
-  senderName?: string;
+  archiveTime?: number;
 }
 
 // Define sort options
@@ -114,23 +111,6 @@ const GitHubIcon = () => (
   </svg>
 )
 
-// Add custom DeleteIcon component
-const DeleteIcon = () => (
-  <svg 
-    width="16" 
-    height="16" 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    xmlns="http://www.w3.org/2000/svg"
-    style={{ marginRight: '4px' }}
-  >
-    <path 
-      d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" 
-      fill="currentColor"
-    />
-  </svg>
-);
-
 const Voicemail: React.FC = () => {
   const [selectedIdentity, setSelectedIdentity] = useState<Identity | null>(null)
   const [isRecording, setIsRecording] = useState<boolean>(false)
@@ -150,12 +130,10 @@ const Voicemail: React.FC = () => {
   const [redeemOpen, setRedeemOpen] = useState<boolean>(false)
   const [selectedVoicemail, setSelectedVoicemail] = useState<VoicemailItem | null>(null)
   const [isRedeeming, setIsRedeeming] = useState<boolean>(false)
-  const [isArchiving, setIsArchiving] = useState<boolean>(false)
   const [loadingDots, setLoadingDots] = useState<string>('.')
   const [searchKey, setSearchKey] = useState<number>(0)
   const [isMncMissing, setIsMncMissing] = useState<boolean>(false)
   const [saveCopy, setSaveCopy] = useState<boolean>(false)
-  const [forgettingVoicemailId, setForgettingVoicemailId] = useState<string | null>(null)
   
   // Add sorting state
   const [sortField, setSortField] = useState<SortField>('time')
@@ -190,22 +168,17 @@ const Voicemail: React.FC = () => {
   // Add back the isLoadingContacts state
   const [isLoadingContacts, setIsLoadingContacts] = useState<boolean>(false)
 
-  // Add new state for notification
-  const [notification, setNotification] = useState<{
-    open: boolean;
-    message: string;
-    type: 'success' | 'error' | 'info';
-    title: string;
-  }>({
-    open: false,
-    message: '',
-    type: 'info',
-    title: 'Info'
-  });
+  // Add state to track which button is being processed
+  const [processingButton, setProcessingButton] = useState<'forget' | 'save' | null>(null)
 
-  // Add state for forget contact confirmation dialog
-  const [forgetContactOpen, setForgetContactOpen] = useState<boolean>(false);
-  const [contactToForget, setContactToForget] = useState<Identity & { txid: string } | null>(null);
+  // Add state to track which voicemail is being forgotten
+  const [forgettingVoicemailId, setForgettingVoicemailId] = useState<string | null>(null)
+
+  // Add state to track which contact is being forgotten
+  const [forgettingContactId, setForgettingContactId] = useState<string | null>(null)
+
+  // Add state to track which sent voicemail is being forgotten
+  const [forgettingSentVoicemailId, setForgettingSentVoicemailId] = useState<string | null>(null)
 
   // Run a 1s interval for checking if MNC is running
   useAsyncEffect(async () => {
@@ -232,38 +205,70 @@ const Voicemail: React.FC = () => {
   useEffect(() => {
     fetchVoicemails()
     fetchContacts() // Add this line to fetch contacts on load
-    fetchSentVoicemails() // Add this line to fetch sent voicemails on load
     fetchArchivedVoicemails() // Add this line to fetch archived voicemails on load
+    fetchSentVoicemails() // Add this line to fetch sent voicemails on load
   }, [])
   
-  // Handle tab change
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    setActiveTab(newValue)
-    
-    // If switching to the inbox tab, refresh the voicemails
-    if (newValue === 1) {
-      fetchVoicemails()
-    }
-    // If switching to the sent tab, refresh the sent voicemails
-    else if (newValue === 2) {
-      fetchSentVoicemails()
-    }
-    // If switching to the archived tab, refresh the archived voicemails
-    else if (newValue === 3) {
+  // Fetch archived voicemails when the archived tab is selected
+  useEffect(() => {
+    if (activeTab === 3) {
       fetchArchivedVoicemails()
     }
-    // If switching to the contacts tab, refresh the contacts
-    else if (newValue === 4) {
+  }, [activeTab])
+
+  // Fetch sent voicemails when the sent tab is selected
+  useEffect(() => {
+    if (activeTab === 2) {
+      fetchSentVoicemails()
+    }
+  }, [activeTab])
+
+  // Fetch contacts when the contacts tab is selected
+  useEffect(() => {
+    if (activeTab === 4) {
       fetchContacts()
     }
-  }
+  }, [activeTab])
+
+  // Start the loading dots animation when loading starts
+  useEffect(() => {
+    if (isLoadingVoicemails) {
+      // Clear any existing interval
+      if (loadingDotsIntervalRef.current) {
+        clearInterval(loadingDotsIntervalRef.current)
+      }
+      
+      // Start a new interval to cycle through dot patterns
+      loadingDotsIntervalRef.current = setInterval(() => {
+        setLoadingDots(prev => {
+          if (prev === '.') return '..'
+          if (prev === '..') return '...'
+          return '.'
+        })
+      }, 500)
+    } else {
+      // Clear the interval when loading stops
+      if (loadingDotsIntervalRef.current) {
+        clearInterval(loadingDotsIntervalRef.current)
+        loadingDotsIntervalRef.current = null
+      }
+      setLoadingDots('.')
+    }
+    
+    // Clean up the interval when the component unmounts
+    return () => {
+      if (loadingDotsIntervalRef.current) {
+        clearInterval(loadingDotsIntervalRef.current)
+      }
+    }
+  }, [isLoadingVoicemails])
 
   // Fetch voicemails from the user's basket
   const fetchVoicemails = async () => {
     setIsLoadingVoicemails(true)
     try {
       const voicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail',
+        basket: 'voicemail',
         include: 'entire transactions'
       })
       
@@ -286,7 +291,7 @@ const Voicemail: React.FC = () => {
                 const encryptedTimestamp = decodedVoicemail.fields[2]
                 const decryptedTimestampData = await walletClient.decrypt({
                   ciphertext: encryptedTimestamp,
-                  protocolID: [0, 'p2p voicemail'],
+                  protocolID: [0, 'voicemail'],
                   keyID: '1'
                 })
                 timestamp = parseInt(Utils.toUTF8(decryptedTimestampData.plaintext), 10)
@@ -303,7 +308,7 @@ const Voicemail: React.FC = () => {
                 const encryptedMessage = decodedVoicemail.fields[3]
                 const decryptedMessageData = await walletClient.decrypt({
                   ciphertext: encryptedMessage,
-                  protocolID: [0, 'p2p voicemail'],
+                  protocolID: [0, 'voicemail'],
                   keyID: '1'
                 })
                 decryptedMessage = Utils.toUTF8(decryptedMessageData.plaintext)
@@ -316,7 +321,7 @@ const Voicemail: React.FC = () => {
             // Decrypt the audio data
             const decryptedAudioData = await walletClient.decrypt({
               ciphertext: encryptedAudio,
-              protocolID: [0, 'p2p voicemail'],
+              protocolID: [0, 'voicemail'],
               keyID: '1'
             })
             
@@ -413,17 +418,20 @@ const Voicemail: React.FC = () => {
   const fetchArchivedVoicemails = async () => {
     setIsLoadingArchived(true)
     try {
-      const archivedVoicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail archived',
+      // Get all transactions in the voicemail archives basket
+      const archivedVoicemails = await walletClient.listOutputs({
+        basket: 'voicemail archives',
         include: 'entire transactions'
       })
       
+      console.log('Found archived voicemails:', archivedVoicemails.outputs.length)
+      
       // Decrypt each archived voicemail
       const decryptedArchivedVoicemails = await Promise.all(
-        archivedVoicemailsFromBasket.outputs.map(async (voicemail: any, i: number) => {
+        archivedVoicemails.outputs.map(async (voicemail: any, i: number) => {
           try {
             const txid = voicemail.outpoint.split('.')[0]
-            const tx = Transaction.fromBEEF(archivedVoicemailsFromBasket.BEEF as number[], txid)
+            const tx = Transaction.fromBEEF(archivedVoicemails.BEEF as number[], txid)
             const lockingScript = tx!.outputs[0].lockingScript
             
             // Decode the PushDrop data
@@ -437,7 +445,7 @@ const Voicemail: React.FC = () => {
                 const encryptedTimestamp = decodedVoicemail.fields[2]
                 const decryptedTimestampData = await walletClient.decrypt({
                   ciphertext: encryptedTimestamp,
-                  protocolID: [0, 'p2p voicemail'],
+                  protocolID: [0, 'voicemail'],
                   keyID: '1'
                 })
                 timestamp = parseInt(Utils.toUTF8(decryptedTimestampData.plaintext), 10)
@@ -454,7 +462,7 @@ const Voicemail: React.FC = () => {
                 const encryptedMessage = decodedVoicemail.fields[3]
                 const decryptedMessageData = await walletClient.decrypt({
                   ciphertext: encryptedMessage,
-                  protocolID: [0, 'p2p voicemail'],
+                  protocolID: [0, 'voicemail'],
                   keyID: '1'
                 })
                 decryptedMessage = Utils.toUTF8(decryptedMessageData.plaintext)
@@ -467,7 +475,7 @@ const Voicemail: React.FC = () => {
             // Decrypt the audio data
             const decryptedAudioData = await walletClient.decrypt({
               ciphertext: encryptedAudio,
-              protocolID: [0, 'p2p voicemail'],
+              protocolID: [0, 'voicemail'],
               keyID: '1'
             })
             
@@ -478,6 +486,9 @@ const Voicemail: React.FC = () => {
             // Get sender information from the transaction
             const sender = decodedVoicemail.fields[0] ? Utils.toUTF8(decodedVoicemail.fields[0]) : 'Unknown'
             
+            // Get archive time from the transaction timestamp
+            const archiveTime = voicemail.timestamp ? new Date(voicemail.timestamp).getTime() : Date.now()
+            
             return {
               id: voicemail.outpoint,
               sender,
@@ -485,7 +496,8 @@ const Voicemail: React.FC = () => {
               audioUrl,
               message: decryptedMessage,
               satoshis: voicemail.satoshis || 0,
-              lockingScript: lockingScript.toHex()
+              lockingScript: lockingScript.toHex(),
+              archiveTime
             } as VoicemailItem
           } catch (error) {
             console.error('Error decrypting archived voicemail:', error)
@@ -499,8 +511,12 @@ const Voicemail: React.FC = () => {
         (voicemail): voicemail is VoicemailItem => voicemail !== null
       )
       
-      // Sort by timestamp (newest first)
-      validArchivedVoicemails.sort((a, b) => b.timestamp - a.timestamp)
+      // Sort by archive time (newest first)
+      validArchivedVoicemails.sort((a, b) => {
+        const timeA = a.archiveTime || 0
+        const timeB = b.archiveTime || 0
+        return timeB - timeA
+      })
       
       setArchivedVoicemails(validArchivedVoicemails)
     } catch (error) {
@@ -510,12 +526,12 @@ const Voicemail: React.FC = () => {
     }
   }
 
-  // Fetch sent voicemails
+  // Fetch sent voicemails from the user's basket
   const fetchSentVoicemails = async () => {
     setIsLoadingSent(true)
     try {
       const sentVoicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail sent',
+        basket: 'voicemail sent',
         include: 'entire transactions'
       })
       
@@ -538,7 +554,7 @@ const Voicemail: React.FC = () => {
                 const encryptedTimestamp = decodedVoicemail.fields[2]
                 const decryptedTimestampData = await walletClient.decrypt({
                   ciphertext: encryptedTimestamp,
-                  protocolID: [0, 'p2p voicemail'],
+                  protocolID: [0, 'voicemail'],
                   keyID: '1'
                 })
                 timestamp = parseInt(Utils.toUTF8(decryptedTimestampData.plaintext), 10)
@@ -555,7 +571,7 @@ const Voicemail: React.FC = () => {
                 const encryptedMessage = decodedVoicemail.fields[3]
                 const decryptedMessageData = await walletClient.decrypt({
                   ciphertext: encryptedMessage,
-                  protocolID: [0, 'p2p voicemail'],
+                  protocolID: [0, 'voicemail'],
                   keyID: '1'
                 })
                 decryptedMessage = Utils.toUTF8(decryptedMessageData.plaintext)
@@ -568,7 +584,7 @@ const Voicemail: React.FC = () => {
             // Decrypt the audio data
             const decryptedAudioData = await walletClient.decrypt({
               ciphertext: encryptedAudio,
-              protocolID: [0, 'p2p voicemail'],
+              protocolID: [0, 'voicemail'],
               keyID: '1'
             })
             
@@ -674,29 +690,11 @@ const Voicemail: React.FC = () => {
   }
   
   const handleSendVoicemail = async () => {
-    if (!selectedIdentity) {
-      setNotification({
-        open: true,
-        message: 'Please select a recipient first',
-        type: 'error',
-        title: 'Error'
-      });
-      return;
-    }
-
-    if (!audioBlob) {
-      setNotification({
-        open: true,
-        message: 'Please record a voicemail first',
-        type: 'error',
-        title: 'Error'
-      });
-      return;
-    }
-
+    if (!selectedIdentity || !audioBlob) return
+    
     // Show confirmation dialog instead of sending immediately
-    setConfirmSendOpen(true);
-  };
+    setConfirmSendOpen(true)
+  }
   
   // New function to handle the actual sending
   const processSendVoicemail = async () => {
@@ -706,7 +704,6 @@ const Voicemail: React.FC = () => {
     }
 
     setIsSending(true)
-    setConfirmSendOpen(false)
     
     try {
       // Move all the existing send logic here
@@ -720,7 +717,7 @@ const Voicemail: React.FC = () => {
       // Encrypt the audio data with the recipient's identity key
       const encryptedAudio = await walletClient.encrypt({
         plaintext: audioArray,
-        protocolID: [0, 'p2p voicemail'],
+        protocolID: [0, 'voicemail'],
         keyID: '1',
         counterparty: selectedIdentity.identityKey
       })
@@ -730,7 +727,7 @@ const Voicemail: React.FC = () => {
       if (message.trim()) {
         const encryptedMessageData = await walletClient.encrypt({
           plaintext: Utils.toArray(message, 'utf8'),
-          protocolID: [0, 'p2p voicemail'],
+          protocolID: [0, 'voicemail'],
           keyID: '1',
           counterparty: selectedIdentity.identityKey
         })
@@ -740,7 +737,7 @@ const Voicemail: React.FC = () => {
       // Encrypt the timestamp
       const encryptedTimestamp = await walletClient.encrypt({
         plaintext: Utils.toArray(timestamp.toString(), 'utf8'),
-        protocolID: [0, 'p2p voicemail'],
+        protocolID: [0, 'voicemail'],
         keyID: '1',
         counterparty: selectedIdentity.identityKey
       })
@@ -754,16 +751,16 @@ const Voicemail: React.FC = () => {
           encryptedTimestamp.ciphertext, // Encrypted timestamp
           ...(encryptedMessage ? [encryptedMessage] : []) // Add encrypted message if it exists
         ],
-        [0, 'p2p voicemail'],
+        [0, 'voicemail'],
         '1',
         selectedIdentity.identityKey  // Use recipient's key instead of 'self'
       )
       
-      // Create the outputs array with the main voicemail output
+      // Prepare outputs array
       const outputs = [{
           lockingScript: bitcoinOutputScript.toHex(),
           satoshis: satoshiAmount,
-        basket: 'p2p voicemail',
+          basket: 'voicemail',
           outputDescription: `Voicemail to ${selectedIdentity.name}`
       }]
       
@@ -772,7 +769,7 @@ const Voicemail: React.FC = () => {
         // Encrypt the audio data with the sender's own key
         const selfEncryptedAudio = await walletClient.encrypt({
           plaintext: audioArray,
-          protocolID: [0, 'p2p voicemail'],
+          protocolID: [0, 'voicemail'],
           keyID: '1',
           counterparty: 'self'
         })
@@ -782,7 +779,7 @@ const Voicemail: React.FC = () => {
         if (message.trim()) {
           const selfEncryptedMessageData = await walletClient.encrypt({
             plaintext: Utils.toArray(message, 'utf8'),
-            protocolID: [0, 'p2p voicemail'],
+            protocolID: [0, 'voicemail'],
             keyID: '1',
             counterparty: 'self'
           })
@@ -792,7 +789,7 @@ const Voicemail: React.FC = () => {
         // Encrypt the timestamp
         const selfEncryptedTimestamp = await walletClient.encrypt({
           plaintext: Utils.toArray(timestamp.toString(), 'utf8'),
-          protocolID: [0, 'p2p voicemail'],
+          protocolID: [0, 'voicemail'],
           keyID: '1',
           counterparty: 'self'
         })
@@ -800,12 +797,12 @@ const Voicemail: React.FC = () => {
         // Create a PushDrop transaction with the encrypted voicemail for self
         const selfBitcoinOutputScript = await pushdrop.lock(
           [
-            Utils.toArray(selectedIdentity.identityKey, 'utf8'), // Recipient's identity key
+            Utils.toArray('self', 'utf8'), // Sender's own key
             selfEncryptedAudio.ciphertext, // Encrypted audio data
             selfEncryptedTimestamp.ciphertext, // Encrypted timestamp
             ...(selfEncryptedMessage ? [selfEncryptedMessage] : []) // Add encrypted message if it exists
           ],
-          [0, 'p2p voicemail'],
+          [0, 'voicemail'],
           '1',
           'self'  // Use self key
         )
@@ -814,7 +811,7 @@ const Voicemail: React.FC = () => {
         outputs.push({
           lockingScript: selfBitcoinOutputScript.toHex(),
           satoshis: 1, // Use 1 satoshi for the copy
-          basket: 'p2p voicemail sent',
+          basket: 'voicemail sent',
           outputDescription: `Copy of voicemail to ${selectedIdentity.name}`
         })
       }
@@ -848,25 +845,35 @@ const Voicemail: React.FC = () => {
         fetchSentVoicemails()
       }
       
-      // Use NotificationModal instead of alert
-      setNotification({
-        open: true,
-        message: 'Voicemail sent successfully!',
-        type: 'success',
-        title: 'Success'
-      });
+      // Close the confirmation dialog after successful send
+      setConfirmSendOpen(false)
       
+      showNotification('Success', 'Voicemail sent successfully!', 'success')
     } catch (error) {
       console.error('Error sending voicemail:', error)
-      // Use NotificationModal instead of alert
-      setNotification({
-        open: true,
-        message: 'Failed to send voicemail. Please try again.',
-        type: 'error',
-        title: 'Error'
-      });
+      showNotification('Error', 'Failed to send voicemail. Please try again.', 'error')
     } finally {
       setIsSending(false)
+    }
+  }
+
+  // Handle tab change
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue)
+    
+    // If switching to the inbox tab, refresh the voicemails
+    if (newValue === 0) {
+      fetchVoicemails()
+    }
+    
+    // If switching to the archives tab, refresh the archived voicemails
+    if (newValue === 1) {
+      fetchArchivedVoicemails()
+    }
+    
+    // If switching to the sent tab, refresh the sent voicemails
+    if (newValue === 2) {
+      fetchSentVoicemails()
     }
   }
 
@@ -877,14 +884,11 @@ const Voicemail: React.FC = () => {
   }
   
   // Process the redemption of satoshis
-  const processRedemption = async (archive: boolean = false) => {
+  const processRedemption = async (shouldArchive: boolean = true) => {
     if (!selectedVoicemail) return
     
-    if (archive) {
-      setIsArchiving(true)
-    } else {
-      setIsRedeeming(true)
-    }
+    // Set which button is being processed
+    setProcessingButton(shouldArchive ? 'save' : 'forget')
     
     try {
       // Get the transaction ID from the voicemail ID
@@ -892,7 +896,7 @@ const Voicemail: React.FC = () => {
       
       // Fetch the BEEF data for the transaction
       const voicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail',
+        basket: 'voicemail',
         include: 'entire transactions'
       })
       
@@ -901,6 +905,10 @@ const Voicemail: React.FC = () => {
       if (description.length > 128) { 
         description = description.substring(0, 128) 
       }
+      
+      // Get the transaction data from the original voicemail
+      const tx = Transaction.fromBEEF(voicemailsFromBasket.BEEF as number[], txid)
+      const lockingScript = tx!.outputs[0].lockingScript
       
       // Create the transaction to redeem the satoshis
       const { signableTransaction } = await walletClient.createAction({
@@ -911,6 +919,12 @@ const Voicemail: React.FC = () => {
           outpoint: selectedVoicemail.id,
           unlockingScriptLength: 73
         }],
+        outputs: shouldArchive ? [{
+          lockingScript: lockingScript.toHex(),
+          satoshis: 1, // Use 1 satoshi for the archive
+          basket: 'voicemail archives',
+          outputDescription: `Archive voicemail from ${selectedVoicemail.sender}`
+        }] : [],
         options: {
           randomizeOutputs: false
         }
@@ -924,7 +938,7 @@ const Voicemail: React.FC = () => {
       
       // Unlock the PushDrop token
       const unlocker = new PushDrop(walletClient).unlock(
-        [0, 'p2p voicemail'],
+        [0, 'voicemail'],
         '1',
         'self',
         'all',
@@ -954,24 +968,98 @@ const Voicemail: React.FC = () => {
       setRedeemOpen(false)
       setSelectedVoicemail(null)
       
-      // Show success notification
-      setNotification({
-        open: true,
-        message: `Successfully redeemed ${selectedVoicemail.satoshis} satoshis${archive ? ' and archived the voicemail' : ''}!`,
-        type: 'success',
-        title: 'Success'
-      });
+      // Refresh the archived voicemails list to include the newly redeemed voicemail
+      fetchArchivedVoicemails()
+      
+      showNotification('Success', `Successfully ${shouldArchive ? 'archived the voicemail and ' : ''}redeemed ${selectedVoicemail.satoshis} satoshis!`, 'success')
     } catch (error) {
       console.error('Error redeeming satoshis:', error)
-      setNotification({
-        open: true,
-        message: 'Failed to redeem satoshis. Please try again.',
-        type: 'error',
-        title: 'Error'
-      });
+      showNotification('Error', 'Failed to redeem satoshis. Please try again.', 'error')
     } finally {
-      setIsRedeeming(false)
-      setIsArchiving(false)
+      setProcessingButton(null)
+    }
+  }
+
+  // Process forgetting an archived voicemail
+  const processForgetArchivedVoicemail = async (voicemail: VoicemailItem) => {
+    // Set the specific voicemail as being processed
+    setForgettingVoicemailId(voicemail.id)
+    
+    try {
+      // Get the transaction ID from the voicemail ID
+      const txid = voicemail.id.split('.')[0]
+      
+      // Fetch the BEEF data for the transaction
+      const archivedVoicemailsFromBasket = await walletClient.listOutputs({
+        basket: 'voicemail archives',
+        include: 'entire transactions'
+      })
+      
+      // Create a description for the redemption
+      let description = `Forget archived voicemail from ${voicemail.sender}`
+      if (description.length > 128) { 
+        description = description.substring(0, 128) 
+      }
+      
+      // Get the transaction data from the archived voicemail
+      const tx = Transaction.fromBEEF(archivedVoicemailsFromBasket.BEEF as number[], txid)
+      const lockingScript = tx!.outputs[0].lockingScript
+      
+      // Create the transaction to redeem the satoshis
+      const { signableTransaction } = await walletClient.createAction({
+        description,
+        inputBEEF: archivedVoicemailsFromBasket.BEEF as number[],
+        inputs: [{
+          inputDescription: 'Forget archived voicemail',
+          outpoint: voicemail.id,
+          unlockingScriptLength: 73
+        }],
+        outputs: [], // No outputs - just redeem the satoshis
+        options: {
+          randomizeOutputs: false
+        }
+      })
+      
+      if (signableTransaction === undefined) {
+        throw new Error('Failed to create signable transaction')
+      }
+      
+      const partialTx = Transaction.fromBEEF(signableTransaction.tx)
+      
+      // Unlock the PushDrop token
+      const unlocker = new PushDrop(walletClient).unlock(
+        [0, 'voicemail contacts'],
+        '1',
+        'self',
+        'all',
+        false,
+        1000, // Default satoshi amount for contacts
+        lockingScript
+      )
+      
+      const unlockingScript = await unlocker.sign(partialTx, 0)
+      
+      // Sign the transaction
+      const signResult = await walletClient.signAction({
+        reference: signableTransaction.reference,
+        spends: {
+          0: {
+            unlockingScript: unlockingScript.toHex()
+          }
+        }
+      })
+      
+      console.log('Archived voicemail forgotten successfully:', signResult)
+      
+      // Remove the forgotten voicemail from the list
+      setArchivedVoicemails(archivedVoicemails.filter(v => v.id !== voicemail.id))
+      
+      showNotification('Success', `Successfully forgotten archived voicemail and redeemed ${voicemail.satoshis} satoshis!`, 'success')
+    } catch (error) {
+      console.error('Error forgetting archived voicemail:', error)
+      showNotification('Error', 'Failed to forget archived voicemail. Please try again.', 'error')
+    } finally {
+      setForgettingVoicemailId(null)
     }
   }
 
@@ -1000,38 +1088,33 @@ const Voicemail: React.FC = () => {
 
   // Fix the handleAddContact function to handle Identity type correctly
   const handleAddContact = async () => {
-    if (!selectedIdentity) {
-      setNotification({
-        open: true,
-        message: 'Please select an identity first',
-        type: 'error',
-        title: 'Error'
-      });
-      return;
+    if (!newContactName.trim() || !selectedIdentity) {
+      setAddContactError('Please provide both a name and select an identity')
+      return
+    }
+
+    // Check if contact already exists
+    if (contacts.some(contact => contact.identityKey === selectedIdentity.identityKey)) {
+      setAddContactError('This contact already exists')
+      return
     }
 
     try {
-      await processCreateEncryptedContact(selectedIdentity.name, selectedIdentity.identityKey);
+      // Create the contact
+      await processCreateEncryptedContact(newContactName, selectedIdentity.identityKey)
       
-      setNotification({
-        open: true,
-        message: 'Contact added successfully!',
-        type: 'success',
-        title: 'Success'
-      });
-      setSelectedIdentity(null);
-      setSearchKey(Date.now());
-      fetchContacts();
+      // Reset form
+      setNewContactName('')
+      setSelectedIdentity(null)
+      setAddContactError('')
+      
+      // Refresh contacts list
+      fetchContacts()
     } catch (error) {
-      console.error('Error adding contact:', error);
-      setNotification({
-        open: true,
-        message: 'Failed to add contact. Please try again.',
-        type: 'error',
-        title: 'Error'
-      });
+      console.error('Error adding contact:', error)
+      setAddContactError('Failed to add contact')
     }
-  };
+  }
 
   // Fix the PushDrop.create call
   const processCreateEncryptedContact = async (name: string, identityKey: string) => {
@@ -1039,23 +1122,20 @@ const Voicemail: React.FC = () => {
       // Encrypt the contact details
       const encryptedName = await walletClient.encrypt({
         plaintext: Utils.toArray(name, 'utf8'),
-        protocolID: [0, 'p2p voicemail contacts'],
-        keyID: '1',
-        counterparty: 'self'
+        protocolID: [0, 'voicemail contacts'],
+        keyID: '1'
       })
 
       const encryptedIdentityKey = await walletClient.encrypt({
         plaintext: Utils.toArray(identityKey, 'utf8'),
-        protocolID: [0, 'p2p voicemail contacts'],
-        keyID: '1',
-        counterparty: 'self'
+        protocolID: [0, 'voicemail contacts'],
+        keyID: '1'
       })
 
       const encryptedTimestamp = await walletClient.encrypt({
         plaintext: Utils.toArray(Date.now().toString(), 'utf8'),
-        protocolID: [0, 'p2p voicemail contacts'],
-        keyID: '1',
-        counterparty: 'self'
+        protocolID: [0, 'voicemail contacts'],
+        keyID: '1'
       })
 
       // Create the transaction using the correct PushDrop API
@@ -1066,7 +1146,7 @@ const Voicemail: React.FC = () => {
           encryptedIdentityKey.ciphertext,
           encryptedTimestamp.ciphertext
         ],
-        [0, 'p2p voicemail contacts'],
+        [0, 'voicemail contacts'],
         '1',
         'self'
       )
@@ -1076,7 +1156,7 @@ const Voicemail: React.FC = () => {
         outputs: [{
           lockingScript: bitcoinOutputScript.toHex(),
           satoshis: 1,
-          basket: 'p2p voicemail contacts',
+          basket: 'voicemail contacts',
           outputDescription: `Contact: ${name}`
         }],
         options: {
@@ -1115,13 +1195,13 @@ const Voicemail: React.FC = () => {
     setIsLoadingContacts(true)
     try {
       const contactsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail contacts',
+        basket: 'voicemail contacts',
         include: 'entire transactions'
       })
       
       // Decrypt each contact
       const decryptedContacts = await Promise.all(
-        contactsFromBasket.outputs.map(async (contact: any, i: number) => {
+        contactsFromBasket.outputs.map(async (contact) => {
           try {
             const txid = contact.outpoint.split('.')[0]
             const tx = Transaction.fromBEEF(contactsFromBasket.BEEF as number[], txid)
@@ -1134,8 +1214,9 @@ const Voicemail: React.FC = () => {
             const encryptedName = decodedContact.fields[0]
             const decryptedNameData = await walletClient.decrypt({
               ciphertext: encryptedName,
-              protocolID: [0, 'p2p voicemail contacts'],
-              keyID: '1'
+              protocolID: [0, 'voicemail contacts'],
+              keyID: '1',
+              counterparty: '033ed271eece571a91052948c3625042820f86ddd899e00e85deb38d36ef3eef0f'
             })
             const contactName = Utils.toUTF8(decryptedNameData.plaintext)
             
@@ -1143,8 +1224,9 @@ const Voicemail: React.FC = () => {
             const encryptedIdentityKey = decodedContact.fields[1]
             const decryptedIdentityKeyData = await walletClient.decrypt({
               ciphertext: encryptedIdentityKey,
-              protocolID: [0, 'p2p voicemail contacts'],
-              keyID: '1'
+              protocolID: [0, 'voicemail contacts'],
+              keyID: '1',
+              counterparty: '033ed271eece571a91052948c3625042820f86ddd899e00e85deb38d36ef3eef0f'
             })
             const identityKey = Utils.toUTF8(decryptedIdentityKeyData.plaintext)
             
@@ -1184,142 +1266,52 @@ const Voicemail: React.FC = () => {
     setSelectedIdentity(contact)
   }
 
-  // Update the processForgetContact function to handle the confirmation flow
-  const handleForgetContactClick = (contact: Identity & { txid: string }) => {
-    setContactToForget(contact);
-    setForgetContactOpen(true);
-  };
-
-  const processForgetContact = async () => {
-    if (!contactToForget) return;
+  // Process forgetting a contact
+  const processForgetContact = async (contact: Identity & { txid: string }) => {
+    // Set the specific contact as being processed
+    setForgettingContactId(contact.identityKey)
     
     try {
+      console.log('Starting to forget contact:', contact.name)
+      
       // Get the transaction ID from the contact
-      const txid = contactToForget.txid;
+      const txid = contact.txid
       
       // Fetch the BEEF data for the transaction
+      console.log('Fetching BEEF data for transaction:', txid)
       const contactsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail contacts',
+        basket: 'voicemail contacts',
         include: 'entire transactions'
-      });
+      })
+      
+      if (!contactsFromBasket || !contactsFromBasket.BEEF) {
+        throw new Error('Failed to fetch BEEF data for contacts basket')
+      }
       
       // Create a description for the redemption
-      let description = `Forget contact ${contactToForget.name}`;
+      let description = `Forget contact ${contact.name}`
       if (description.length > 128) { 
-        description = description.substring(0, 128); 
+        description = description.substring(0, 128) 
       }
       
       // Get the transaction data from the contact
-      const tx = Transaction.fromBEEF(contactsFromBasket.BEEF as number[], txid);
-      const lockingScript = tx!.outputs[0].lockingScript;
+      console.log('Creating transaction from BEEF data')
+      const tx = Transaction.fromBEEF(contactsFromBasket.BEEF as number[], txid)
+      
+      if (!tx) {
+        throw new Error('Failed to create transaction from BEEF data')
+      }
+      
+      const lockingScript = tx.outputs[0].lockingScript
       
       // Create the transaction to redeem the satoshis
+      console.log('Creating action to redeem satoshis')
       const { signableTransaction } = await walletClient.createAction({
         description,
         inputBEEF: contactsFromBasket.BEEF as number[],
         inputs: [{
           inputDescription: 'Forget contact',
           outpoint: `${txid}.0`,
-          unlockingScriptLength: 73
-        }],
-        outputs: [], // No outputs - just redeem the satoshis
-        options: {
-          randomizeOutputs: false
-        }
-      });
-      
-      if (signableTransaction === undefined) {
-        throw new Error('Failed to create signable transaction');
-      }
-      
-      const partialTx = Transaction.fromBEEF(signableTransaction.tx);
-      
-      // Unlock the PushDrop token
-      const unlocker = new PushDrop(walletClient).unlock(
-        [0, 'p2p voicemail contacts'],
-        '1',
-        'self',
-        'all',
-        false,
-        1, // 1 satoshi for contacts
-        lockingScript
-      );
-      
-      const unlockingScript = await unlocker.sign(partialTx, 0);
-      
-      // Sign the transaction
-      const signResult = await walletClient.signAction({
-        reference: signableTransaction.reference,
-        spends: {
-          0: {
-            unlockingScript: unlockingScript.toHex()
-          }
-        }
-      });
-      
-      console.log('Contact forgotten successfully:', signResult);
-      
-      // Remove the forgotten contact from the list
-      setContacts(contacts.filter(c => c.identityKey !== contactToForget.identityKey));
-      
-      // Show success notification
-      setNotification({
-        open: true,
-        message: `Successfully forgotten contact "${contactToForget.name}" and redeemed satoshis!`,
-        type: 'success',
-        title: 'Success'
-      });
-      
-      // Force a refresh of contacts
-      await fetchContacts();
-      
-    } catch (error) {
-      console.error('Error forgetting contact:', error);
-      setNotification({
-        open: true,
-        message: 'Failed to forget contact. Please try again.',
-        type: 'error',
-        title: 'Error'
-      });
-    } finally {
-      // Close the confirmation dialog
-      setForgetContactOpen(false);
-      setContactToForget(null);
-    }
-  };
-
-  // Process forgetting an archived voicemail
-  const processForgetArchivedVoicemail = async (voicemail: VoicemailItem) => {
-    // Set the specific voicemail as being processed
-    setForgettingVoicemailId(voicemail.id)
-    
-    try {
-      // Get the transaction ID from the voicemail ID
-      const txid = voicemail.id.split('.')[0]
-      
-      // Fetch the BEEF data for the transaction
-      const archivedVoicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail archived',
-        include: 'entire transactions'
-      })
-      
-      // Create a description for the redemption
-      let description = `Forget archived voicemail from ${voicemail.sender}`
-      if (description.length > 128) { 
-        description = description.substring(0, 128) 
-      }
-      
-      // Get the transaction data from the archived voicemail
-      const tx = Transaction.fromBEEF(archivedVoicemailsFromBasket.BEEF as number[], txid)
-      const lockingScript = tx!.outputs[0].lockingScript
-      
-      // Create the transaction to redeem the satoshis
-      const { signableTransaction } = await walletClient.createAction({
-        description,
-        inputBEEF: archivedVoicemailsFromBasket.BEEF as number[],
-        inputs: [{
-          inputDescription: 'Forget archived voicemail',
-          outpoint: voicemail.id,
           unlockingScriptLength: 73
         }],
         outputs: [], // No outputs - just redeem the satoshis
@@ -1335,19 +1327,21 @@ const Voicemail: React.FC = () => {
       const partialTx = Transaction.fromBEEF(signableTransaction.tx)
       
       // Unlock the PushDrop token
+      console.log('Unlocking PushDrop token')
       const unlocker = new PushDrop(walletClient).unlock(
-        [0, 'p2p voicemail'],
+        [0, 'voicemail contacts'],
         '1',
         'self',
         'all',
         false,
-        voicemail.satoshis,
+        1, // Changed from 1000 to 1 satoshi
         lockingScript
       )
       
       const unlockingScript = await unlocker.sign(partialTx, 0)
       
       // Sign the transaction
+      console.log('Signing transaction')
       const signResult = await walletClient.signAction({
         reference: signableTransaction.reference,
         spends: {
@@ -1357,35 +1351,30 @@ const Voicemail: React.FC = () => {
         }
       })
       
-      console.log('Archived voicemail forgotten successfully:', signResult)
+      console.log('Contact forgotten successfully:', signResult)
       
-      // Remove the forgotten voicemail from the list
-      setArchivedVoicemails(archivedVoicemails.filter(v => v.id !== voicemail.id))
+      // Remove the forgotten contact from the list
+      setContacts(contacts.filter(c => c.identityKey !== contact.identityKey))
       
       // Show success notification
-      setNotification({
-        open: true,
-        message: `Successfully forgotten archived voicemail and redeemed ${voicemail.satoshis} satoshis!`,
-        type: 'success',
-        title: 'Success'
-      })
+      showNotification('Success', `Successfully forgotten contact ${contact.name} and redeemed satoshis!`, 'success')
+      
+      // Force a refresh of contacts
+      await fetchContacts()
+      
     } catch (error) {
-      console.error('Error forgetting archived voicemail:', error)
-      setNotification({
-        open: true,
-        message: 'Failed to forget archived voicemail. Please try again.',
-        type: 'error',
-        title: 'Error'
-      })
+      console.error('Error forgetting contact:', error)
+      showNotification('Error', 'Failed to forget contact. Please try again.', 'error')
     } finally {
-      setForgettingVoicemailId(null)
+      // Always reset the forgetting state
+      setForgettingContactId(null)
     }
   }
 
   // Process forgetting a sent voicemail
   const processForgetSentVoicemail = async (voicemail: VoicemailItem) => {
     // Set the specific voicemail as being processed
-    setForgettingVoicemailId(voicemail.id)
+    setForgettingSentVoicemailId(voicemail.id)
     
     try {
       // Get the transaction ID from the voicemail ID
@@ -1393,7 +1382,7 @@ const Voicemail: React.FC = () => {
       
       // Fetch the BEEF data for the transaction
       const sentVoicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail sent',
+        basket: 'voicemail sent',
         include: 'entire transactions'
       })
       
@@ -1430,7 +1419,7 @@ const Voicemail: React.FC = () => {
       
       // Unlock the PushDrop token
       const unlocker = new PushDrop(walletClient).unlock(
-        [0, 'p2p voicemail'],
+        [0, 'voicemail'],
         '1',
         'self',
         'all',
@@ -1456,29 +1445,86 @@ const Voicemail: React.FC = () => {
       // Remove the forgotten voicemail from the list
       setSentVoicemails(sentVoicemails.filter(v => v.id !== voicemail.id))
       
-      // Show success notification
-      setNotification({
-        open: true,
-        message: `Successfully forgotten sent voicemail and redeemed ${voicemail.satoshis} satoshis!`,
-        type: 'success',
-        title: 'Success'
-      })
+      showNotification('Success', `Successfully forgotten sent voicemail and redeemed ${voicemail.satoshis} satoshis!`, 'success')
     } catch (error) {
       console.error('Error forgetting sent voicemail:', error)
-      setNotification({
-        open: true,
-        message: 'Failed to forget sent voicemail. Please try again.',
-        type: 'error',
-        title: 'Error'
-      })
+      showNotification('Error', 'Failed to forget sent voicemail. Please try again.', 'error')
     } finally {
-      setForgettingVoicemailId(null)
+      setForgettingSentVoicemailId(null)
     }
   }
 
+  const [notificationOpen, setNotificationOpen] = useState(false)
+  const [notificationTitle, setNotificationTitle] = useState('')
+  const [notificationMessage, setNotificationMessage] = useState('')
+  const [notificationType, setNotificationType] = useState<'success' | 'error' | 'info'>('info')
+
+  // Function to show notification
+  const showNotification = (title: string, message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setNotificationTitle(title)
+    setNotificationMessage(message)
+    setNotificationType(type)
+    setNotificationOpen(true)
+  }
+
+  // Function to refresh all data when MetaNet Client becomes available
+  const refreshAllData = async () => {
+    // Check if MetaNet Client is now available
+    const isMncAvailable = await checkForMetaNetClient()
+    
+    if (isMncAvailable) {
+      // Refresh data based on the current tab
+      if (activeTab === 0) {
+        // Inbox tab
+        fetchVoicemails()
+      } else if (activeTab === 1) {
+        // Archived tab
+        fetchArchivedVoicemails()
+      } else if (activeTab === 2) {
+        // Sent tab
+        fetchSentVoicemails()
+      }
+      
+      // Also refresh contacts
+      fetchContacts()
+    }
+  }
+
+  // Add this useEffect hook after the other useEffect hooks
+  useEffect(() => {
+    // Check if MetaNet Client is available when component mounts
+    const checkAndLoadData = async () => {
+      try {
+        const isMncAvailable = await checkForMetaNetClient()
+        if (isMncAvailable) {
+          console.log("MetaNet Client available on mount, loading all baskets...")
+          await Promise.all([
+            fetchVoicemails(),
+            fetchArchivedVoicemails(),
+            fetchSentVoicemails(),
+            fetchContacts()
+          ])
+          console.log("Successfully loaded all baskets on mount")
+        }
+      } catch (error) {
+        console.error("Error checking for MetaNet Client on mount:", error)
+      }
+    }
+    
+    checkAndLoadData()
+  }, []) // Empty dependency array means this runs once when component mounts
+
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <NoMncModal open={isMncMissing} onClose={() => { setIsMncMissing(false) }} />
+    <>
+    <NoMncModal 
+      open={isMncMissing} 
+      onClose={async () => { 
+        setIsMncMissing(false)
+        
+        // Force a page reload to ensure all data is refreshed
+        window.location.reload()
+      }} 
+    />
     
     {/* Add the confirmation dialog */}
     <Dialog 
@@ -1487,7 +1533,14 @@ const Voicemail: React.FC = () => {
       maxWidth="sm"
       fullWidth
     >
-        <DialogTitle>Confirm Send Voicemail</DialogTitle>
+      <DialogTitle sx={{ 
+        color: 'white',
+        fontSize: '1.5rem',
+        fontWeight: 'bold',
+        letterSpacing: '0.5px'
+      }}>
+        Confirm
+      </DialogTitle>
       <DialogContent>
         <Box>
           <Box sx={{ mb: 3 }}>
@@ -1535,14 +1588,61 @@ const Voicemail: React.FC = () => {
         </Box>
       </DialogContent>
       <DialogActions>
-          <Button onClick={() => setConfirmSendOpen(false)}>Cancel</Button>
+        <Button onClick={() => setConfirmSendOpen(false)} disabled={isSending}>Cancel</Button>
         <Button 
           onClick={processSendVoicemail}
-            color="primary"
+          color="success"
           variant="contained"
           disabled={isSending}
-          >
-            {isSending ? 'Sending...' : 'Confirm Send'}
+          sx={{ 
+            minWidth: 120,
+            py: 0.5,
+            fontSize: '0.9rem',
+            fontWeight: 'bold',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+            '&:hover': {
+              boxShadow: '0 3px 6px rgba(0,0,0,0.3)',
+              bgcolor: '#2e7d32' // lighter green on hover
+            },
+            transition: 'all 0.2s ease-in-out',
+            color: 'white',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            bgcolor: '#1b5e20' // dark green background
+          }}
+        >
+          {isSending ? (
+            <CircularProgress size={20} color="inherit" />
+          ) : (
+            <>
+              <svg 
+                width="18" 
+                height="18" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path 
+                  d="M22 2L11 13" 
+                  stroke="white" 
+                  strokeWidth="2" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"
+                />
+                <path 
+                  d="M22 2L15 22L11 13L2 9L22 2Z" 
+                  stroke="white" 
+                  strokeWidth="2" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span>
+                Send
+              </span>
+            </>
+          )}
         </Button>
       </DialogActions>
     </Dialog>
@@ -1589,12 +1689,10 @@ const Voicemail: React.FC = () => {
               color: 'rgba(255, 255, 255, 0.9)',
               mb: 1
             }}>
-                P2P Voicemail On Bitcoin
+              P2P Voicemail
             </Typography>
             <Typography variant="body1" color="text.secondary" sx={{ maxWidth: '600px' }}>
-              Send encrypted, peer-to-peer, on-chain voicemail with attached micropayments while utilizing your encrypted contact list.
-              </Typography>
-              
+            Send encrypted, peer-to-peer, on-chain voicemail with attached micropayments while integrating your encrypted contact list.            </Typography>
           </Box>
         </Box>
         <Box sx={{ 
@@ -1785,8 +1883,7 @@ const Voicemail: React.FC = () => {
             </Box>
           } 
         />
-          <Tab 
-            label={
+        <Tab label={
           <Box sx={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
             Sent
             {isLoadingSent ? (
@@ -1906,10 +2003,8 @@ const Voicemail: React.FC = () => {
               <Box component="span" sx={{ ml: 1 }}>({sentVoicemails.length})</Box>
             )}
           </Box>
-            } 
-          />
-          <Tab 
-            label={
+        } />
+        <Tab label={
           <Box sx={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
             Archived
             {isLoadingArchived ? (
@@ -2029,8 +2124,7 @@ const Voicemail: React.FC = () => {
               <Box component="span" sx={{ ml: 1 }}>({archivedVoicemails.length})</Box>
             )}
           </Box>
-            } 
-          />
+        } />
         <Tab label={
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
             Contacts
@@ -2181,16 +2275,13 @@ const Voicemail: React.FC = () => {
                 Step 1
               </Box>
             </Box>
-              <Box sx={{ textAlign: 'center', mb: 2 }}>
-                <Typography variant="h6">
+            <CardContent>
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                {/* Search Section - Centered and Full Width */}
+                <Box sx={{ width: '100%', maxWidth: '600px', mb: 3 }}>
+                  <Typography variant="h6" gutterBottom sx={{ textAlign: 'center', mb: 1 }}>
                     Search For Recipient
                   </Typography>
-                <Box sx={{ 
-                  display: 'flex', 
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: 3
-                }}>
                   <IdentitySearchField 
                     key={searchKey}
                     onIdentitySelected={(identity) => {
@@ -2198,21 +2289,11 @@ const Voicemail: React.FC = () => {
                     }}
                   />
                 </Box>
-              </Box>
-              <CardContent>
-                <Box sx={{ 
-                  display: 'flex', 
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: 3
-                }}>
-                  {/* Search Section */}
 
-
-                  {/* Contacts Section */}
-                  <Box sx={{ width: '100%', maxWidth: 600 }}>
-                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', textAlign: 'center' }}>
-                    ...Or Select From Contacts  {isLoadingContacts ? '' : `(${contacts.length})`}
+                {/* Contacts Section - Centered and Full Width */}
+                <Box sx={{ width: '100%', maxWidth: '600px' }}>
+                  <Typography variant="h6" gutterBottom sx={{ textAlign: 'center' }}>
+                   ...Or Select From Contacts {isLoadingContacts ? '' : `(${contacts.length})`}
                   </Typography>
                   <Paper 
                     variant="outlined" 
@@ -2230,21 +2311,25 @@ const Voicemail: React.FC = () => {
                     {isLoadingContacts ? (
                       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                         <CircularProgress size={24} />
-                        <Typography variant="body2" color="text.secondary">
+                        <Box component="div" sx={{ color: 'text.secondary' }}>
                           Loading contacts...
-                        </Typography>
+                        </Box>
                       </Box>
                     ) : contacts.length === 0 ? (
-                      <Typography variant="body2" color="text.secondary" align="center">
-                        No contacts yet.<br />
-                        Add contacts to quickly select recipients.
-                      </Typography>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Box component="div" sx={{ color: 'text.secondary' }}>
+                          No contacts yet.
+                        </Box>
+                        <Box component="div" sx={{ color: 'text.secondary', mt: 1 }}>
+                          Add contacts to quickly select recipients.
+                        </Box>
+                      </Box>
                     ) : (
                       <Box sx={{ width: '100%' }}>
                         <List sx={{ width: '100%', maxHeight: 200, overflow: 'auto' }}>
                           {contacts.map((contact, index) => (
                             <ListItemButton 
-                                key={contact.identityKey}
+                              key={`${contact.identityKey}-${index}`}
                               onClick={() => handleSelectContact(contact)}
                               sx={{ 
                                 border: '1px solid',
@@ -2257,7 +2342,7 @@ const Voicemail: React.FC = () => {
                               <ListItemText
                                 primary={
                                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                    <Typography 
+                                    <Box 
                                       component="span" 
                                       sx={{ 
                                         mr: 1, 
@@ -2267,13 +2352,38 @@ const Voicemail: React.FC = () => {
                                       }}
                                     >
                                       {index + 1}.
-                                    </Typography>
-                                    {contact.name}
+                                    </Box>
+                                    <Box component="span">
+                                      {contact.name}
+                                    </Box>
                                   </Box>
                                 }
                                 secondary={
                                   <Box sx={{ mt: 1 }}>
-                                    <IdentityCard identityKey={contact.identityKey} />
+                                    <Box sx={{ mb: 1 }}>
+                                      <Box component="span" sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                                        {contact.abbreviatedKey}
+                                      </Box>
+                                    </Box>
+                                    <Box sx={{ mt: 1, fontSize: '0.75rem' }}>
+                                      <Box component="span" sx={{ color: 'text.secondary' }}>
+                                        txid: 
+                                      </Box>
+                                      <Box 
+                                        component="a" 
+                                        href={`https://whatsonchain.com/tx/${contact.txid}`}
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        sx={{ 
+                                          color: 'white', 
+                                          textDecoration: 'underline',
+                                          wordBreak: 'break-all',
+                                          ml: 0.5
+                                        }}
+                                      >
+                                        {shortenTxId(contact.txid)}
+                                      </Box>
+                                    </Box>
                                   </Box>
                                 }
                               />
@@ -2288,40 +2398,32 @@ const Voicemail: React.FC = () => {
               
               {selectedIdentity && (
                 <Box sx={{ mt: 2, position: 'relative' }}>
+                  <Typography 
+                    variant="subtitle2" 
+                    sx={{ 
+                      color: '#2e7d32', 
+                      fontWeight: 'bold',
+                      mb: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M12 4C14.21 4 16 5.79 16 8C16 10.21 14.21 12 12 12C9.79 12 8 10.21 8 8C8 5.79 9.79 4 12 4ZM12 14C16.42 14 20 15.79 20 18V20H4V18C4 15.79 7.58 14 12 14Z" fill="#2e7d32"/>
+                    </svg>
+                    Recipient
+                  </Typography>
                   <Paper 
                     elevation={1} 
                     sx={{ 
                       p: 2, 
                       bgcolor: 'background.paper', 
                       position: 'relative',
-                        maxWidth: 600, 
-                        mx: 'auto',
-                        border: '1px solid',
-                        borderColor: '#2e7d32',
-                        borderRadius: 1
-                      }}
-                    >
-                      <Box sx={{ 
-                        position: 'absolute', 
-                        top: -12, 
-                        left: 16, 
-                        bgcolor: '#2e7d32', 
-                        color: 'white', 
-                        px: 1.5, 
-                        py: 0.5, 
-                        borderRadius: 1,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1,
-                        fontSize: '0.875rem',
-                        fontWeight: 'bold',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                      }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M12 4C14.21 4 16 5.79 16 8C16 10.21 14.21 12 12 12C9.79 12 8 10.21 8 8C8 5.79 9.79 4 12 4ZM12 14C16.42 14 20 15.79 20 18V20H4V18C4 15.79 7.58 14 12 14Z" fill="white"/>
-                        </svg>
-                        Recipient
-                      </Box>
+                      border: '1px solid #2e7d32',
+                      borderRadius: '8px'
+                    }}
+                  >
                     <IconButton 
                       size="small" 
                       onClick={clearSelectedIdentity}
@@ -2595,16 +2697,18 @@ const Voicemail: React.FC = () => {
             </CardContent>
           </Card>
           
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, mb: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
               <FormControlLabel
                 control={
                   <Checkbox 
+                    color="primary" 
                     checked={saveCopy}
                     onChange={(e) => setSaveCopy(e.target.checked)}
-                    color="primary"
                   />
                 }
-                label="Save a copy in sent folder"
+                label="Save a copy to Sent folder?"
+                sx={{ mb: 1 }}
               />
             <Button
               variant="contained"
@@ -2660,6 +2764,7 @@ const Voicemail: React.FC = () => {
                   </>
                 )}
             </Button>
+            </Box>
           </Box>
         </>
       )}
@@ -2669,7 +2774,7 @@ const Voicemail: React.FC = () => {
           <CardContent>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
               <Typography variant="h6">
-                  My Voicemail
+                Inbox
               </Typography>
               
               {/* Add sorting controls */}
@@ -2713,7 +2818,7 @@ const Voicemail: React.FC = () => {
             ) : (
               <List>
                 {voicemails.map((voicemail, index) => (
-                    <React.Fragment key={voicemail.id}>
+                  <React.Fragment key={`${voicemail.id}-${index}`}>
                     <ListItem alignItems="flex-start">
                       <ListItemText
                         primary={
@@ -2769,14 +2874,14 @@ const Voicemail: React.FC = () => {
                               >
                                 Redeem Satoshis
                               </Button>
-                                {/* <Button 
+                              {/* <Button 
                                 variant="outlined" 
                                 color="secondary" 
                                 size="small"
                                 onClick={() => debugVoicemail(voicemail)}
                               >
                                 Debug
-                                </Button> */}
+                              </Button> */}
                             </div>
                           </div>
                         }
@@ -2807,12 +2912,12 @@ const Voicemail: React.FC = () => {
               </Box>
             ) : sentVoicemails.length === 0 ? (
             <Typography variant="body1" color="text.secondary">
-                  Your sent voicemails will appear here.
+                Your sent voicemails will appear here if you checked "Save a copy" when sending.
             </Typography>
             ) : (
               <List>
                 {sentVoicemails.map((voicemail, index) => (
-                    <React.Fragment key={voicemail.id}>
+                  <React.Fragment key={`${voicemail.id}-${index}`}>
                     <ListItem alignItems="flex-start">
                       <ListItemText
                         primary={
@@ -2865,9 +2970,10 @@ const Voicemail: React.FC = () => {
                                 color="error" 
                                 size="small"
                                 onClick={() => processForgetSentVoicemail(voicemail)}
-                                disabled={forgettingVoicemailId === voicemail.id}
+                                disabled={forgettingSentVoicemailId !== null}
+                                startIcon={forgettingSentVoicemailId === voicemail.id ? <CircularProgress size={16} color="inherit" /> : null}
                               >
-                                {forgettingVoicemailId === voicemail.id ? 'Forgetting...' : 'Forget Message'}
+                                {forgettingSentVoicemailId === voicemail.id ? 'Forgetting...' : 'Forget'}
                               </Button>
                             </div>
                           </div>
@@ -2899,12 +3005,12 @@ const Voicemail: React.FC = () => {
               </Box>
             ) : archivedVoicemails.length === 0 ? (
               <Typography variant="body1" color="text.secondary">
-                  Your archived voicemails will appear here after you redeem satoshis.
+                Your archived voicemail will appear if you save them after redeeming satoshis.
               </Typography>
             ) : (
               <List>
                 {archivedVoicemails.map((voicemail, index) => (
-                    <React.Fragment key={voicemail.id}>
+                  <React.Fragment key={`${voicemail.id}-${index}`}>
                     <ListItem alignItems="flex-start">
                       <ListItemText
                         primary={
@@ -2949,7 +3055,7 @@ const Voicemail: React.FC = () => {
                               </div>
                             )}
                             <div style={{ marginTop: '4px' }}>
-                                Redeemed on {new Date(voicemail.redemptionTime || 0).toLocaleString()}
+                              Sent on {new Date(voicemail.timestamp).toLocaleString()}
                             </div>
                             <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                               <Button 
@@ -2957,9 +3063,10 @@ const Voicemail: React.FC = () => {
                                 color="error" 
                                 size="small"
                                 onClick={() => processForgetArchivedVoicemail(voicemail)}
-                                disabled={forgettingVoicemailId === voicemail.id}
+                                disabled={forgettingVoicemailId !== null}
+                                startIcon={forgettingVoicemailId === voicemail.id ? <CircularProgress size={16} color="inherit" /> : null}
                               >
-                                {forgettingVoicemailId === voicemail.id ? 'Forgetting...' : 'Forget Message'}
+                                {forgettingVoicemailId === voicemail.id ? 'Forgetting...' : 'Forget'}
                               </Button>
                             </div>
                           </div>
@@ -3071,7 +3178,7 @@ const Voicemail: React.FC = () => {
               <List>
                 {contacts.map((contact, index) => (
                   <ListItem
-                      key={contact.identityKey}
+                    key={`${contact.identityKey}-${index}`}
                     sx={{ 
                       border: '1px solid',
                       borderColor: 'divider',
@@ -3093,38 +3200,49 @@ const Voicemail: React.FC = () => {
                           >
                             {index + 1}.
                           </Typography>
-                          {contact.name}
+                          <Typography component="span">
+                            {contact.name}
+                          </Typography>
                         </Box>
                       }
                       secondary={
                         <Box sx={{ mt: 1 }}>
-                          <IdentityCard identityKey={contact.identityKey} />
+                          <Box sx={{ mb: 1 }}>
+                            <Typography component="span" variant="body2" sx={{ fontFamily: 'monospace' }}>
+                              {contact.abbreviatedKey}
+                            </Typography>
+                          </Box>
                           <Box sx={{ mt: 1, fontSize: '0.75rem' }}>
-                            <span style={{ color: 'text.secondary', marginRight: '4px' }}>txid: </span>
-                            <a 
-                              href={`https://whatsonchain.com/tx/${contact.txid}`} 
+                            <Typography component="span" variant="caption" color="text.secondary">
+                              txid: 
+                            </Typography>
+                            <Typography 
+                              component="a" 
+                              href={`https://whatsonchain.com/tx/${contact.txid}`}
                               target="_blank" 
                               rel="noopener noreferrer"
-                              style={{ 
+                              sx={{ 
                                 color: 'white', 
                                 textDecoration: 'underline',
-                                wordBreak: 'break-all'
+                                wordBreak: 'break-all',
+                                ml: 0.5
                               }}
                             >
                               {shortenTxId(contact.txid)}
-                            </a>
+                            </Typography>
                           </Box>
-                            <Box sx={{ mt: 1, display: 'flex', justifyContent: 'flex-end' }}>
+                          <Box sx={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                             <Button 
                               variant="outlined" 
                               color="error" 
                               size="small"
-                                onClick={() => handleForgetContactClick(contact)}
-                                startIcon={<DeleteIcon />}
+                              onClick={() => processForgetContact(contact)}
+                              disabled={forgettingContactId !== null}
+                              startIcon={forgettingContactId === contact.identityKey ? <CircularProgress size={16} color="inherit" /> : null}
                             >
-                                Forget Contact
+                              {forgettingContactId === contact.identityKey ? 'Forgetting...' : 'Forget'}
                             </Button>
-                            </Box>
+                          </Box>
                         </Box>
                       }
                     />
@@ -3153,6 +3271,7 @@ const Voicemail: React.FC = () => {
             </Box>
             <Typography variant="body2" color="text.secondary">
               This will create a transaction that redeems the satoshis attached to this voicemail.
+              You can redeem and forget or redeem and add to archives.
             </Typography>
           </Box>
         </DialogContent>
@@ -3161,18 +3280,20 @@ const Voicemail: React.FC = () => {
           <Button 
             onClick={() => processRedemption(false)} 
             color="primary" 
-            variant="outlined"
-            disabled={isRedeeming || isArchiving}
+            variant="contained"
+            disabled={processingButton !== null}
+            startIcon={processingButton === 'forget' ? <CircularProgress size={20} color="inherit" /> : null}
           >
-            {isRedeeming ? 'Redeeming...' : 'Redeem Satoshis'}
+            {processingButton === 'forget' ? 'Processing...' : 'Redeem and Forget'}
           </Button>
           <Button 
             onClick={() => processRedemption(true)} 
-            color="primary" 
+            color="secondary" 
             variant="contained"
-            disabled={isRedeeming || isArchiving}
+            disabled={processingButton !== null}
+            startIcon={processingButton === 'save' ? <CircularProgress size={20} color="inherit" /> : null}
           >
-            {isArchiving ? 'Processing...' : 'Redeem & Archive'}
+            {processingButton === 'save' ? 'Processing...' : 'Redeem And Save'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -3222,86 +3343,15 @@ const Voicemail: React.FC = () => {
         </DialogActions>
       </Dialog>
       
-        {/* Forget Contact Confirmation Dialog */}
-        <Dialog 
-          open={forgetContactOpen} 
-          onClose={() => setForgetContactOpen(false)}
-          maxWidth="sm"
-          fullWidth
-        >
-          <DialogTitle>Forget Contact</DialogTitle>
-          <DialogContent>
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="body1" gutterBottom>
-                Are you sure you want to forget this contact?
-              </Typography>
-              
-              {contactToForget && (
-                <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-                  <Typography variant="subtitle1" gutterBottom>
-                    Contact Details
-                  </Typography>
-                  
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                      Name / Description:
-                    </Typography>
-                    <Typography variant="body1">
-                      {contactToForget.name}
-                    </Typography>
-                  </Box>
-                  
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                      Identity:
-                    </Typography>
-                    <IdentityCard 
-                      identityKey={contactToForget.identityKey} 
+      <NotificationModal
+        open={notificationOpen}
+        onClose={() => setNotificationOpen(false)}
+        title={notificationTitle}
+        message={notificationMessage}
+        type={notificationType}
       />
     </Box>
-                  
-                  <Box sx={{ mt: 2 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      This action will:
-                    </Typography>
-                    <ul>
-                      <li>
-                        <Typography variant="body2">
-                          Remove this contact from your list
-                        </Typography>
-                      </li>
-                      <li>
-                        <Typography variant="body2">
-                          Redeem the 1 satoshi attached to this contact
-                        </Typography>
-                      </li>
-                    </ul>
-                  </Box>
-                </Box>
-              )}
-            </Box>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setForgetContactOpen(false)}>Cancel</Button>
-            <Button 
-              onClick={processForgetContact} 
-              color="error" 
-              variant="contained"
-            >
-              Forget Contact
-            </Button>
-          </DialogActions>
-        </Dialog>
-      </Box>
-      
-      <NotificationModal
-        open={notification.open}
-        message={notification.message}
-        type={notification.type}
-        title={notification.title}
-        onClose={() => setNotification(prev => ({ ...prev, open: false }))}
-      />
-    </Container>
+    </>
   )
 }
 
