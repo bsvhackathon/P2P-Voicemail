@@ -305,10 +305,9 @@ const Voicemail: React.FC = () => {
             
             const encryptedAudio = decodedVoicemail.fields[1]
             
-            // Try to decrypt the audio data with both sender and recipient keys
+            // Decrypt the audio data with the sender's key
             let decryptedAudioData
             try {
-              // First try with sender's key
               decryptedAudioData = await walletClient.decrypt({
                 ciphertext: encryptedAudio,
                 protocolID: [0, 'p2p voicemail rebuild'],
@@ -316,19 +315,8 @@ const Voicemail: React.FC = () => {
                 counterparty: sender
               })
             } catch (error) {
-              console.log('Failed to decrypt with sender key, trying recipient key')
-              try {
-                // If that fails, try with recipient key (self)
-                decryptedAudioData = await walletClient.decrypt({
-                  ciphertext: encryptedAudio,
-                  protocolID: [0, 'p2p voicemail rebuild'],
-                  keyID: '1',
-                  counterparty: 'self'
-                })
-              } catch (error) {
-                console.error('Failed to decrypt audio with both keys')
-                return null
-              }
+              console.error('Failed to decrypt audio with sender key')
+              return null
             }
             
             // Convert to audio format
@@ -342,7 +330,6 @@ const Voicemail: React.FC = () => {
                 const encryptedMessage = decodedVoicemail.fields[3]
                 let decryptedMessageData
                 try {
-                  // First try with sender's key
                   decryptedMessageData = await walletClient.decrypt({
                     ciphertext: encryptedMessage,
                     protocolID: [0, 'p2p voicemail rebuild'],
@@ -350,19 +337,8 @@ const Voicemail: React.FC = () => {
                     counterparty: sender
                   })
                 } catch (error) {
-                  console.log('Failed to decrypt message with sender key, trying recipient key')
-                  try {
-                    // If that fails, try with recipient key (self)
-                    decryptedMessageData = await walletClient.decrypt({
-                      ciphertext: encryptedMessage,
-                      protocolID: [0, 'p2p voicemail rebuild'],
-                      keyID: '1',
-                      counterparty: 'self'
-                    })
-                  } catch (error) {
-                    console.warn('Failed to decrypt message with both keys')
-                    message = '' // Set empty message if decryption fails
-                  }
+                  console.warn('Message blank')
+                  message = '' // Set empty message if decryption fails
                 }
                 if (decryptedMessageData) {
                   message = Utils.toUTF8(decryptedMessageData.plaintext)
