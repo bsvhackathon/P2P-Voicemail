@@ -39,9 +39,6 @@ import { WalletClient, Utils, Transaction, PushDrop, LockingScript } from '@bsv/
 import checkForMetaNetClient from '../utils/checkForMetaNetClient'
 import NoMncModal from '../components/NoMncModal'
 import NotificationModal from '../components/NotificationModal'
-import ArchiveIcon from '@mui/icons-material/Archive'
-// Remove the DeleteIcon import
-// import DeleteIcon from '@mui/icons-material/Delete'
 import { MessageBoxClient } from '@bsv/p2p'
 
 // Initialize wallet client
@@ -271,34 +268,18 @@ const Voicemail: React.FC = () => {
     try {
       // List messages from p2p voicemail message box
       const messages = await messageBoxClient.listMessages({
-        messageBox: 'p2p voicemail test'
+        messageBox: 'p2p voicemail test messagebox'
       })
       
       console.log('P2P Voicemail Messages:', messages)
       
-      // Get redeemed transactions from the redeemed basket
-      const redeemedOutputs = await walletClient.listOutputs({
-        basket: 'voicemail redeemed',
-        include: 'entire transactions'
-      })
-      
-      // Create a set of redeemed transaction IDs for quick lookup
-      const redeemedTxids = new Set(
-        redeemedOutputs.outputs.map(output => output.outpoint.split('.')[0])
-      )
-      
+
       // Process P2P messages to find transactions
       const p2pVoicemails = await Promise.all(
         messages.map(async (msg) => {
           try {
             const body = JSON.parse(msg.body)
             const transaction = JSON.parse(body.message)
-            
-            // Skip if this transaction has been redeemed
-            if (redeemedTxids.has(transaction.txid)) {
-              console.log('Skipping redeemed transaction:', transaction.txid)
-              return null
-            }
             
             // Create a Transaction object from the tx array
             const tx = Transaction.fromBEEF(transaction.tx, transaction.txid)
@@ -607,9 +588,9 @@ const Voicemail: React.FC = () => {
       await messageBoxClient.sendMessage({
         recipient: selectedIdentity.identityKey,
         messageId: voicemailTransaction.txid,
-        messageBox: 'p2p voicemail test',
+        messageBox: 'p2p voicemail test messagebox',
         body: {
-          type: 'p2p voicemail test',
+          type: 'p2p voicemail test messagebox',
           txid: voicemailTransaction.txid,
           satoshis: satoshiAmount,
           timestamp: timestamp,
@@ -658,167 +639,8 @@ const Voicemail: React.FC = () => {
   }
   
   // Process the redemption of satoshis
-  const processRedemption = async (archive: boolean = false) => {
-    if (!selectedVoicemail) return
-    
-    if (archive) {
-      setIsArchiving(true)
-    } else {
-      setIsRedeeming(true)
-    }
-    
-    try {
-      // Get the transaction ID from the voicemail ID
-      const txid = selectedVoicemail.id.split('.')[0]
-      
-      // Fetch the BEEF data for the transaction
-      const voicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail',
-        include: 'entire transactions'
-      })
-      
-      // Create a description for the redemption
-      let description = `Redeem satoshis from voicemail from ${selectedVoicemail.sender}`
-      if (description.length > 128) { 
-        description = description.substring(0, 128) 
-      }
-      
-      // Create the transaction to redeem the satoshis
-      const { signableTransaction } = await walletClient.createAction({
-        description,
-        inputBEEF: voicemailsFromBasket.BEEF as number[],
-        inputs: [{
-          inputDescription: 'Redeem voicemail satoshis',
-          outpoint: selectedVoicemail.id,
-          unlockingScriptLength: 73
-        }],
-        outputs: archive ? [{
-          lockingScript: LockingScript.fromHex(selectedVoicemail?.lockingScript || '').toHex(),
-          satoshis: 1, // Use 1 satoshi for the archived copy
-          basket: 'p2p voicemail archived',
-          outputDescription: `Archived voicemail from ${selectedVoicemail?.sender || 'unknown'}`
-        }] : [],
-        options: {
-          randomizeOutputs: false
-        }
-      })
-      
-      if (signableTransaction === undefined) {
-        throw new Error('Failed to create signable transaction')
-      }
-      
-      const partialTx = Transaction.fromBEEF(signableTransaction.tx)
-      
-      // Unlock the PushDrop token
-      const unlocker = new PushDrop(walletClient).unlock(
-        [0, 'p2p voicemail'],
-        '1',
-        'self',
-        'all',
-        false,
-        selectedVoicemail.satoshis,
-        LockingScript.fromHex(selectedVoicemail.lockingScript)
-      )
-      
-      const unlockingScript = await unlocker.sign(partialTx, 0)
-      
-      // Sign the transaction
-      const signResult = await walletClient.signAction({
-        reference: signableTransaction.reference,
-        spends: {
-          0: {
-            unlockingScript: unlockingScript.toHex()
-          }
-        }
-      })
-      
-      console.log('Satoshis redeemed successfully:', signResult)
-      
-      // Remove the redeemed voicemail from the list
-      setVoicemails(voicemails.filter(v => v.id !== selectedVoicemail.id))
-
-
-      // Check if there's a copy in the sent folder and remove it
-      const sentVoicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail sent items newest',
-        include: 'entire transactions'
-      })
-      
-      // Find the matching sent voicemail by comparing the locking scripts
-      const sentVoicemail = sentVoicemailsFromBasket.outputs.find(
-        (voicemail: any) => voicemail.outpoint.split('.')[0] === txid
-      )
-
-      if (sentVoicemail) {
-        // Create a transaction to forget the sent copy
-        const { signableTransaction: forgetTx } = await walletClient.createAction({
-          description: `Forget sent copy of redeemed voicemail`,
-          inputBEEF: sentVoicemailsFromBasket.BEEF as number[],
-        inputs: [{
-            inputDescription: 'Forget sent voicemail copy',
-            outpoint: sentVoicemail.outpoint,
-          unlockingScriptLength: 73
-        }],
-        outputs: [], // No outputs - just redeem the satoshis
-        options: {
-          randomizeOutputs: false
-        }
-      })
-      
-        if (forgetTx === undefined) {
-          throw new Error('Failed to create forget transaction')
-        }
-
-        const forgetPartialTx = Transaction.fromBEEF(forgetTx.tx)
-        
-        // Unlock the PushDrop token for the sent copy
-        const forgetUnlocker = new PushDrop(walletClient).unlock(
-          [0, 'p2p voicemail sent items newest'], // Changed to match the basket
-          '1',
-          'self',
-          'all',
-          false,
-          1, // 1 satoshi for sent copies
-          LockingScript.fromHex(sentVoicemail.lockingScript || '')
-        )
-        
-        const forgetUnlockingScript = await forgetUnlocker.sign(forgetPartialTx, 0)
-        
-        // Sign the forget transaction
-        await walletClient.signAction({
-          reference: forgetTx.reference,
-        spends: {
-          0: {
-              unlockingScript: forgetUnlockingScript.toHex()
-            }
-          }
-        })
-
-      }
-      
-      // Close the dialog
-      setRedeemOpen(false)
-      setSelectedVoicemail(null)
-      
-      // Show success notification
-      setNotification({
-        open: true,
-        message: `Successfully redeemed ${selectedVoicemail.satoshis} satoshis${archive ? ' and archived the voicemail' : ''}!`,
-        type: 'success',
-        title: 'Success'
-      });
-    } catch (error) {
-      console.error('Error redeeming satoshis:', error)
-      setNotification({
-        open: true,
-        message: 'Failed to redeem satoshis. Please try again.',
-        type: 'error',
-        title: 'Error'
-      });
-    } finally {
-      setIsRedeeming(false)
-      setIsArchiving(false)
-    }
+  const processRedemption = async () => {
+console.log("processing redemption soon")
   }
 
   // Function to clear the selected identity and reset the search field
@@ -1134,193 +956,8 @@ const Voicemail: React.FC = () => {
     }
   };
 
-  // Process forgetting an archived voicemail
-  const processForgetArchivedVoicemail = async (voicemail: VoicemailItem) => {
-    // Set the specific voicemail as being processed
-    setForgettingVoicemailId(voicemail.id)
-    
-    try {
-      // Get the transaction ID from the voicemail ID
-      const txid = voicemail.id.split('.')[0]
-      
-      // Fetch the BEEF data for the transaction
-      const archivedVoicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail archived',
-        include: 'entire transactions'
-      })
-      
-      // Create a description for the redemption
-      let description = `Forget archived voicemail from ${voicemail.sender}`
-      if (description.length > 128) { 
-        description = description.substring(0, 128) 
-      }
-      
-      // Get the transaction data from the archived voicemail
-      const tx = Transaction.fromBEEF(archivedVoicemailsFromBasket.BEEF as number[], txid)
-      const lockingScript = tx!.outputs[0].lockingScript
-      
-      // Create the transaction to redeem the satoshis
-      const { signableTransaction } = await walletClient.createAction({
-        description,
-        inputBEEF: archivedVoicemailsFromBasket.BEEF as number[],
-        inputs: [{
-          inputDescription: 'Forget archived voicemail',
-          outpoint: voicemail.id,
-          unlockingScriptLength: 73
-        }],
-        outputs: [], // No outputs - just redeem the satoshis
-        options: {
-          randomizeOutputs: false
-        }
-      })
-      
-      if (signableTransaction === undefined) {
-        throw new Error('Failed to create signable transaction')
-      }
-      
-      const partialTx = Transaction.fromBEEF(signableTransaction.tx)
-      
-      // Unlock the PushDrop token
-      const unlocker = new PushDrop(walletClient).unlock(
-        [0, 'p2p voicemail'],
-        '1',
-        'self',
-        'all',
-        false,
-        voicemail.satoshis,
-        lockingScript
-      )
-      
-      const unlockingScript = await unlocker.sign(partialTx, 0)
-      
-      // Sign the transaction
-      const signResult = await walletClient.signAction({
-        reference: signableTransaction.reference,
-        spends: {
-          0: {
-            unlockingScript: unlockingScript.toHex()
-          }
-        }
-      })
-      
-      console.log('Archived voicemail forgotten successfully:', signResult)
-      
-      // Remove the forgotten voicemail from the list
-      setArchivedVoicemails(archivedVoicemails.filter(v => v.id !== voicemail.id))
-      
-      // Show success notification
-      setNotification({
-        open: true,
-        message: `Successfully forgotten archived voicemail and redeemed ${voicemail.satoshis} satoshis!`,
-        type: 'success',
-        title: 'Success'
-      })
-    } catch (error) {
-      console.error('Error forgetting archived voicemail:', error)
-      setNotification({
-        open: true,
-        message: 'Failed to forget archived voicemail. Please try again.',
-        type: 'error',
-        title: 'Error'
-      })
-    } finally {
-      setForgettingVoicemailId(null)
-    }
-  }
 
-  // Process forgetting a sent voicemail
-  const processForgetSentVoicemail = async (voicemail: VoicemailItem) => {
-    // Set the specific voicemail as being processed
-    setForgettingVoicemailId(voicemail.id)
-    
-    try {
-      // Get the transaction ID from the voicemail ID
-      const txid = voicemail.id.split('.')[0]
-      
-      // Fetch the BEEF data for the transaction
-      const sentVoicemailsFromBasket = await walletClient.listOutputs({
-        basket: 'p2p voicemail sent items newest',
-        include: 'entire transactions'
-      })
-      
-      // Create a description for the redemption
-      let description = `Forget sent voicemail to ${voicemail.recipient || 'recipient'}`
-      if (description.length > 128) { 
-        description = description.substring(0, 128) 
-      }
-      
-      // Get the transaction data from the sent voicemail
-      const tx = Transaction.fromBEEF(sentVoicemailsFromBasket.BEEF as number[], txid)
-      const lockingScript = tx!.outputs[0].lockingScript
-      
-      // Create the transaction to redeem the satoshis
-      const { signableTransaction } = await walletClient.createAction({
-        description,
-        inputBEEF: sentVoicemailsFromBasket.BEEF as number[],
-        inputs: [{
-          inputDescription: 'Forget sent voicemail',
-          outpoint: voicemail.id,
-          unlockingScriptLength: 73
-        }],
-        outputs: [], // No outputs - just redeem the satoshis
-        options: {
-          randomizeOutputs: false
-        }
-      })
-      
-      if (signableTransaction === undefined) {
-        throw new Error('Failed to create signable transaction')
-      }
-      
-      const partialTx = Transaction.fromBEEF(signableTransaction.tx)
-      
-      // Unlock the PushDrop token
-      const unlocker = new PushDrop(walletClient).unlock(
-        [0, 'p2p voicemail'],
-        '1',
-        'self',
-        'all',
-        false,
-        voicemail.satoshis,
-        lockingScript
-      )
-      
-      const unlockingScript = await unlocker.sign(partialTx, 0)
-      
-      // Sign the transaction
-      const signResult = await walletClient.signAction({
-        reference: signableTransaction.reference,
-        spends: {
-          0: {
-            unlockingScript: unlockingScript.toHex()
-          }
-        }
-      })
-      
-      console.log('Sent voicemail forgotten successfully:', signResult)
-      
-      // Remove the forgotten voicemail from the list
-      setSentVoicemails(sentVoicemails.filter(v => v.id !== voicemail.id))
-      
-      // Show success notification
-      setNotification({
-        open: true,
-        message: `Successfully forgotten sent voicemail and redeemed ${voicemail.satoshis} satoshis!`,
-        type: 'success',
-        title: 'Success'
-      })
-    } catch (error) {
-      console.error('Error forgetting sent voicemail:', error)
-      setNotification({
-        open: true,
-        message: 'Failed to forget sent voicemail. Please try again.',
-        type: 'error',
-        title: 'Error'
-      })
-    } finally {
-      setForgettingVoicemailId(null)
-    }
-  }
+ 
 
 
   // Add useEffect to fetch messages when the inbox tab is active
@@ -2694,7 +2331,7 @@ const Voicemail: React.FC = () => {
         <DialogActions>
           <Button onClick={() => setRedeemOpen(false)}>Cancel</Button>
           <Button 
-            onClick={() => processRedemption(false)} 
+            onClick={() => processRedemption()} 
             color="primary" 
             variant="outlined"
             disabled={isRedeeming || isArchiving}
