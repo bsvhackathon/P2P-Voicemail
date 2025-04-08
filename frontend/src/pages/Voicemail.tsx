@@ -676,7 +676,7 @@ console.log("processing redemption soon")
     }
 
     try {
-      await processCreateEncryptedContact(selectedIdentity.name, selectedIdentity.identityKey);
+      await processCreateEncryptedContact(newContactName, selectedIdentity.identityKey);
       
       setNotification({
         open: true,
@@ -685,6 +685,7 @@ console.log("processing redemption soon")
         title: 'Success'
       });
       setSelectedIdentity(null);
+      setNewContactName(''); // Clear the contact name field
       setSearchKey(Date.now());
       fetchContacts();
     } catch (error) {
