@@ -268,10 +268,10 @@ const Voicemail: React.FC = () => {
     try {
       // List messages from p2p voicemail message box
       const messages = await messageBoxClient.listMessages({
-        messageBox: 'p2p voicemail test messagebox'
+        messageBox: 'p2p voicemail rebuild messagebox'
       })
       
-      console.log('P2P Voicemail Messages:', messages)
+      console.log('p2p voicemail rebuild messagebox messages:', messages)
       
 
       // Process P2P messages to find transactions
@@ -304,7 +304,7 @@ const Voicemail: React.FC = () => {
             // Decrypt the audio data
             const decryptedAudioData = await walletClient.decrypt({
               ciphertext: encryptedAudio,
-              protocolID: [0, 'p2p voicemail'],
+              protocolID: [0, 'p2p voicemail rebuild'],
               keyID: '1'
             })
             
@@ -322,7 +322,7 @@ const Voicemail: React.FC = () => {
                 const encryptedMessage = decodedVoicemail.fields[3]
                 const decryptedMessageData = await walletClient.decrypt({
                   ciphertext: encryptedMessage,
-                  protocolID: [0, 'p2p voicemail'],
+                  protocolID: [0, 'p2p voicemail rebuild'],
                   keyID: '1'
                 })
                 message = Utils.toUTF8(decryptedMessageData.plaintext)
@@ -517,7 +517,6 @@ const Voicemail: React.FC = () => {
     setConfirmSendOpen(false)
     
     try {
-      // Move all the existing send logic here
       // Convert audio blob to array of numbers for encryption
       const audioArrayBuffer = await audioBlob.arrayBuffer()
       const audioArray = Array.from(new Uint8Array(audioArrayBuffer))
@@ -528,7 +527,7 @@ const Voicemail: React.FC = () => {
       // Encrypt the audio data with the recipient's identity key
       const encryptedAudio = await walletClient.encrypt({
         plaintext: audioArray,
-        protocolID: [0, 'voicemail rebuild'],
+        protocolID: [0, 'p2p voicemail rebuild'],
         keyID: '1',
         counterparty: selectedIdentity.identityKey
       })
@@ -538,7 +537,7 @@ const Voicemail: React.FC = () => {
       if (message.trim()) {
         const encryptedMessageData = await walletClient.encrypt({
           plaintext: Utils.toArray(message, 'utf8'),
-          protocolID: [0, 'voicemail rebuild'],
+          protocolID: [0, 'p2p voicemail rebuild'],
           keyID: '1',
           counterparty: selectedIdentity.identityKey
         })
@@ -548,7 +547,7 @@ const Voicemail: React.FC = () => {
       // Encrypt the timestamp
       const encryptedTimestamp = await walletClient.encrypt({
         plaintext: Utils.toArray(timestamp.toString(), 'utf8'),
-        protocolID: [0, 'voicemail rebuild'],
+        protocolID: [0, 'p2p voicemail rebuild'],
         keyID: '1',
         counterparty: selectedIdentity.identityKey
       })
@@ -562,7 +561,7 @@ const Voicemail: React.FC = () => {
           encryptedTimestamp.ciphertext, // Encrypted timestamp
           ...(encryptedMessage ? [encryptedMessage] : []) // Add encrypted message if it exists
         ],
-        [0, 'voicemail rebuild'],
+        [0, 'p2p voicemail rebuild'],
         '1',
         selectedIdentity.identityKey  // Use recipient's key instead of 'self'
       )
@@ -572,7 +571,7 @@ const Voicemail: React.FC = () => {
         outputs: [{
           lockingScript: bitcoinOutputScript.toHex(),
           satoshis: satoshiAmount,
-          basket: 'voicemail rebuild',
+          basket: 'p2p voicemail rebuild',
           outputDescription: `Voicemail to ${selectedIdentity.name}`
         }],
         options: {
@@ -588,16 +587,15 @@ const Voicemail: React.FC = () => {
       await messageBoxClient.sendMessage({
         recipient: selectedIdentity.identityKey,
         messageId: voicemailTransaction.txid,
-        messageBox: 'p2p voicemail test messagebox',
+        messageBox: 'p2p voicemail rebuild messagebox',
         body: {
-          type: 'p2p voicemail test messagebox',
+          type: 'p2p voicemail rebuild messagebox',
           txid: voicemailTransaction.txid,
           satoshis: satoshiAmount,
           timestamp: timestamp,
           message: JSON.stringify(voicemailTransaction) || undefined
         }
       })  
-      
 
       // Reset form after successful send
       setSelectedIdentity(null)
@@ -620,10 +618,10 @@ const Voicemail: React.FC = () => {
       
     } catch (error) {
       console.error('Error sending voicemail:', error)
-      // Use NotificationModal instead of alert
+      // Use NotificationModal instead of alert with more specific error message
       setNotification({
         open: true,
-        message: 'Failed to send voicemail. Please try again.',
+        message: error instanceof Error ? error.message : 'Failed to send voicemail. Please try again.',
         type: 'error',
         title: 'Error'
       });
