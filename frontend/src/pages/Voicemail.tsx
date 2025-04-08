@@ -166,6 +166,7 @@ const Voicemail: React.FC = () => {
   const [saveCopy, setSaveCopy] = useState<boolean>(false)
   const [forgettingVoicemailId, setForgettingVoicemailId] = useState<string | null>(null)
   const [isLoadingMessages, setIsLoadingMessages] = useState<boolean>(false)
+  const [redemptionComingSoonOpen, setRedemptionComingSoonOpen] = useState<boolean>(false);
   
   // Add sorting state
   const [sortField, setSortField] = useState<SortField>('time')
@@ -648,13 +649,17 @@ const Voicemail: React.FC = () => {
 
   // Handle redeeming satoshis from a voicemail
   const handleRedeemSatoshis = async (voicemail: VoicemailItem) => {
-    setSelectedVoicemail(voicemail)
-    setRedeemOpen(true)
+    setSelectedVoicemail(voicemail);
+    setRedeemOpen(true);
+    // Remove the line below to prevent the popup from appearing in the inbox
+    // setRedemptionComingSoonOpen(true);
   }
   
   // Process the redemption of satoshis
   const processRedemption = async () => {
-console.log("processing redemption soon")
+    console.log("processing redemption soon")
+    // Add the line below to trigger the popup after clicking Redeem Satoshis in the dialog
+    setRedemptionComingSoonOpen(true);
   }
 
   // Function to clear the selected identity and reset the search field
@@ -981,6 +986,12 @@ console.log("processing redemption soon")
       fetchVoicemails();
     }
   }, [activeTab]);
+
+  // Function to close both the Redeem Satoshis dialog and the Redemptions coming soon popup
+  const closeRedemptionDialogs = () => {
+    setRedeemOpen(false);
+    setRedemptionComingSoonOpen(false);
+  }
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -2508,6 +2519,21 @@ console.log("processing redemption soon")
         title={notification.title}
         onClose={() => setNotification(prev => ({ ...prev, open: false }))}
       />
+
+      {/* Redemption Coming Soon Dialog */}
+      <Dialog open={redemptionComingSoonOpen} onClose={() => setRedemptionComingSoonOpen(false)}>
+        <DialogTitle>Redemption Notice</DialogTitle>
+        <DialogContent>
+          <Typography variant="body1">
+            Redemptions coming soon
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeRedemptionDialogs} color="primary">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   )
 }
