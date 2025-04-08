@@ -298,34 +298,75 @@ const Voicemail: React.FC = () => {
               console.error('Invalid PushDrop data structure:', decodedVoicemail)
               return null
             }
+
+            // Get sender information from the message itself
+            const sender = msg.sender || 'Unknown'
+            console.log(sender + " = sender")
             
             const encryptedAudio = decodedVoicemail.fields[1]
             
-            // Decrypt the audio data
-            const decryptedAudioData = await walletClient.decrypt({
-              ciphertext: encryptedAudio,
-              protocolID: [0, 'p2p voicemail rebuild'],
-              keyID: '1'
-            })
+            // Try to decrypt the audio data with both sender and recipient keys
+            let decryptedAudioData
+            try {
+              // First try with sender's key
+              decryptedAudioData = await walletClient.decrypt({
+                ciphertext: encryptedAudio,
+                protocolID: [0, 'p2p voicemail rebuild'],
+                keyID: '1',
+                counterparty: sender
+              })
+            } catch (error) {
+              console.log('Failed to decrypt with sender key, trying recipient key')
+              try {
+                // If that fails, try with recipient key (self)
+                decryptedAudioData = await walletClient.decrypt({
+                  ciphertext: encryptedAudio,
+                  protocolID: [0, 'p2p voicemail rebuild'],
+                  keyID: '1',
+                  counterparty: 'self'
+                })
+              } catch (error) {
+                console.error('Failed to decrypt audio with both keys')
+                return null
+              }
+            }
             
             // Convert to audio format
             const audioBlob = new Blob([new Uint8Array(decryptedAudioData.plaintext)], { type: 'audio/wav' })
             const audioUrl = URL.createObjectURL(audioBlob)
-            
-            // Get sender information
-            const sender = decodedVoicemail.fields[0] ? Utils.toUTF8(decodedVoicemail.fields[0]) : 'Unknown'
             
             // Get message if it exists (field index 3)
             let message = ''
             if (decodedVoicemail.fields.length > 3 && decodedVoicemail.fields[3]) {
               try {
                 const encryptedMessage = decodedVoicemail.fields[3]
-                const decryptedMessageData = await walletClient.decrypt({
-                  ciphertext: encryptedMessage,
-                  protocolID: [0, 'p2p voicemail rebuild'],
-                  keyID: '1'
-                })
-                message = Utils.toUTF8(decryptedMessageData.plaintext)
+                let decryptedMessageData
+                try {
+                  // First try with sender's key
+                  decryptedMessageData = await walletClient.decrypt({
+                    ciphertext: encryptedMessage,
+                    protocolID: [0, 'p2p voicemail rebuild'],
+                    keyID: '1',
+                    counterparty: sender
+                  })
+                } catch (error) {
+                  console.log('Failed to decrypt message with sender key, trying recipient key')
+                  try {
+                    // If that fails, try with recipient key (self)
+                    decryptedMessageData = await walletClient.decrypt({
+                      ciphertext: encryptedMessage,
+                      protocolID: [0, 'p2p voicemail rebuild'],
+                      keyID: '1',
+                      counterparty: 'self'
+                    })
+                  } catch (error) {
+                    console.warn('Failed to decrypt message with both keys')
+                    message = '' // Set empty message if decryption fails
+                  }
+                }
+                if (decryptedMessageData) {
+                  message = Utils.toUTF8(decryptedMessageData.plaintext)
+                }
               } catch (messageError) {
                 console.warn('Error decrypting message:', messageError)
               }
