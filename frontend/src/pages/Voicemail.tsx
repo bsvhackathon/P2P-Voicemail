@@ -571,7 +571,6 @@ const Voicemail: React.FC = () => {
         outputs: [{
           lockingScript: bitcoinOutputScript.toHex(),
           satoshis: satoshiAmount,
-          basket: 'p2p voicemail rebuild',
           outputDescription: `Voicemail to ${selectedIdentity.name}`
         }],
         options: {
