@@ -1153,7 +1153,7 @@ console.log("processing redemption soon")
         <Tab 
           label={
             <Box sx={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
-              Inbox{!isLoadingVoicemails && voicemails.length > 0 && ` (${voicemails.length})`}
+              Inbox{!isLoadingVoicemails && ` (${voicemails.length})`}
               {isLoadingVoicemails ? (
                 <Box 
                   component="span" 
@@ -1899,114 +1899,141 @@ console.log("processing redemption soon")
       {activeTab === 1 && (
         <Card>
           <CardContent>
-            <Typography variant="h6" gutterBottom>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6">
                 Inbox
               </Typography>
               
-            {/* Messages Section */}
-            <Box sx={{ mb: 4 }}>
-
-              {isLoadingVoicemails ? (
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, p: 3 }}>
-                  <CircularProgress size={24} />
-                  <Typography variant="body2" color="text.secondary">
-                    Loading messages...
-                  </Typography>
-                </Box>
-              ) : voicemails.length === 0 ? (
-                <Typography variant="body1" color="text.secondary">
-                  No new messages.
-                </Typography>
-              ) : (
-                <List>
-                  {voicemails.map((message, index) => (
-                    <ListItem
-                      key={message.id}
-                      sx={{ 
-                        border: '1px solid',
-                        borderColor: 'divider',
-                        borderRadius: 1,
-                        mb: 1,
-                        flexDirection: 'column',
-                        alignItems: 'flex-start',
-                        '&:hover': {
-                          bgcolor: 'action.hover'
-                        }
-                      }}
-                    >
-                      <Box sx={{ width: '100%', display: 'flex', alignItems: 'flex-start' }}>
-                        <ListItemText
-                          primary={
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Typography 
-                                  variant="subtitle1" 
-                                  sx={{ 
-                                    fontWeight: 'bold',
-                                    color: 'text.secondary',
-                                    minWidth: '24px'
-                                  }}
-                                >
-                                  {index + 1}.
-                                </Typography>
-                                <Typography variant="subtitle1">
-                                  From:
-                                </Typography>
-                                <IdentityCard identityKey={message.sender} />
-                              </Box>
-                            </Box>
-                          }
-                          secondary={
-                            <Box>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-                                <Typography variant="caption" color="text.secondary">
-                                  {new Date(message.timestamp).toLocaleString()}
-                                </Typography>
-                              </Box>
-                              <Box sx={{ color: 'text.secondary', fontSize: '0.875rem', mt: 1 }}>
-                                <Tooltip title={message.id}>
-                                  <a 
-                                    href={`https://whatsonchain.com/tx/${message.id}`}
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    style={{ textDecoration: 'underline', color: 'inherit' }}
-                                  >
-                                    {message.id.substring(0, 8)}...{message.id.substring(message.id.length - 8)}
-                                  </a>
-                                </Tooltip>
-                              </Box>
-                              <Typography variant="body2" sx={{ mt: 1 }}>
-                                {message.satoshis.toLocaleString()} satoshis attached
-                              </Typography>
-                              {message.message && (
-                                <Typography variant="body2" sx={{ mt: 1 }}>
-                                  <strong>Message:</strong> {message.message}
-                                </Typography>
-                              )}
-                              <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
-                                <Button 
-                                  variant="contained" 
-                                  color="primary" 
-                                  size="small"
-                                  onClick={() => handleRedeemSatoshis(message)}
-                                  disabled={isRedeeming}
-                                >
-                                  {isRedeeming ? 'Redeeming...' : 'Redeem Satoshis'}
-                                </Button>
-
-                              </Box>
-                            </Box>
-                          }
-                        />
-                      </Box>
-                      <Box sx={{ width: '100%', px: 2, py: 1, mt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
-                        <audio controls src={message.audioUrl} style={{ width: '100%' }} />
-                      </Box>
-                    </ListItem>
-                  ))}
-                </List>
-              )}
+              {/* Add sorting controls */}
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <FormControl size="small" sx={{ minWidth: 120 }}>
+                  <InputLabel id="sort-field-label">Sort by</InputLabel>
+                  <Select
+                    labelId="sort-field-label"
+                    value={sortField}
+                    label="Sort by"
+                    onChange={handleSortFieldChange}
+                  >
+                    <MenuItem value="time">Time</MenuItem>
+                    <MenuItem value="satoshis">Satoshis</MenuItem>
+                  </Select>
+                </FormControl>
+                
+                <FormControl size="small" sx={{ minWidth: 120 }}>
+                  <InputLabel id="sort-order-label">Order</InputLabel>
+                  <Select
+                    labelId="sort-order-label"
+                    value={sortOrder}
+                    label="Order"
+                    onChange={handleSortOrderChange}
+                  >
+                    <MenuItem value="desc">Newest/Highest</MenuItem>
+                    <MenuItem value="asc">Oldest/Lowest</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
             </Box>
+            
+            {isLoadingVoicemails ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, p: 3 }}>
+                <CircularProgress size={24} />
+                <Typography variant="body2" color="text.secondary">
+                  Loading messages...
+                </Typography>
+              </Box>
+            ) : voicemails.length === 0 ? (
+              <Typography variant="body1" color="text.secondary">
+                No new messages.
+              </Typography>
+            ) : (
+              <List>
+                {voicemails.map((message, index) => (
+                  <ListItem
+                    key={message.id}
+                    sx={{ 
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                      mb: 1,
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      '&:hover': {
+                        bgcolor: 'action.hover'
+                      }
+                    }}
+                  >
+                    <Box sx={{ width: '100%', display: 'flex', alignItems: 'flex-start' }}>
+                      <ListItemText
+                        primary={
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography 
+                                variant="subtitle1" 
+                                sx={{ 
+                                  fontWeight: 'bold',
+                                  color: 'text.secondary',
+                                  minWidth: '24px'
+                                }}
+                              >
+                                {index + 1}.
+                              </Typography>
+                              <Typography variant="subtitle1">
+                                From:
+                              </Typography>
+                              <IdentityCard identityKey={message.sender} />
+                            </Box>
+                          </Box>
+                        }
+                        secondary={
+                          <Box>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+                              <Typography variant="caption" color="text.secondary">
+                                {new Date(message.timestamp).toLocaleString()}
+                              </Typography>
+                            </Box>
+                            <Box sx={{ color: 'text.secondary', fontSize: '0.875rem', mt: 1 }}>
+                              <Tooltip title={message.id}>
+                                <a 
+                                  href={`https://whatsonchain.com/tx/${message.id}`}
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  style={{ textDecoration: 'underline', color: 'inherit' }}
+                                >
+                                  {message.id.substring(0, 8)}...{message.id.substring(message.id.length - 8)}
+                                </a>
+                              </Tooltip>
+                            </Box>
+                            <Typography variant="body2" sx={{ mt: 1 }}>
+                              {message.satoshis.toLocaleString()} satoshis attached
+                            </Typography>
+                            {message.message && (
+                              <Typography variant="body2" sx={{ mt: 1 }}>
+                                <strong>Message:</strong> {message.message}
+                              </Typography>
+                            )}
+                            <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
+                              <Button 
+                                variant="contained" 
+                                color="primary" 
+                                size="small"
+                                onClick={() => handleRedeemSatoshis(message)}
+                                disabled={isRedeeming}
+                              >
+                                {isRedeeming ? 'Redeeming...' : `Redeem ${message.satoshis.toLocaleString()} Satoshis`}
+                              </Button>
+
+                            </Box>
+                          </Box>
+                        }
+                      />
+                    </Box>
+                    <Box sx={{ width: '100%', px: 2, py: 1, mt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+                      <audio controls src={message.audioUrl} style={{ width: '100%' }} />
+                    </Box>
+                  </ListItem>
+                ))}
+              </List>
+            )}
           </CardContent>
         </Card>
       )}
