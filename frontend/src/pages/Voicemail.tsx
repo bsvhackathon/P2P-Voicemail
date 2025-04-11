@@ -35,7 +35,7 @@ import {
   ListItemAvatar,
   Avatar
 } from '@mui/material'
-import { WalletClient, Utils, Transaction, PushDrop, LockingScript } from '@bsv/sdk'
+import { WalletClient, Utils, Transaction, PushDrop, LockingScript, InternalizeActionArgs, ATOMIC_BEEF, AtomicBEEF, InternalizeOutput, BasketInsertion} from '@bsv/sdk'
 import checkForMetaNetClient from '../utils/checkForMetaNetClient'
 import NoMncModal from '../components/NoMncModal'
 import NotificationModal from '../components/NotificationModal'
@@ -166,12 +166,14 @@ const Voicemail: React.FC = () => {
   const [saveCopy, setSaveCopy] = useState<boolean>(false)
   const [forgettingVoicemailId, setForgettingVoicemailId] = useState<string | null>(null)
   const [isLoadingMessages, setIsLoadingMessages] = useState<boolean>(false)
-  const [redemptionComingSoonOpen, setRedemptionComingSoonOpen] = useState<boolean>(false);
+  const [internalizedVoicemails, setInternalizedVoicemails] = useState<VoicemailItem[]>([]);
+  const [isLoadingInternalized, setIsLoadingInternalized] = useState<boolean>(false);
   
-  // Add sorting state
+  // Add back sorting state
   const [sortField, setSortField] = useState<SortField>('time')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   
+  // Add back refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const timerRef = useRef<NodeJS.Timeout | null>(null)
@@ -243,7 +245,7 @@ const Voicemail: React.FC = () => {
   useEffect(() => {
     fetchVoicemails()
     fetchContacts() // Add this line to fetch contacts on load
-    // fetchSentVoicemails() // Add this line to fetch sent voicemails on load
+    fetchInternalizedVoicemails() // Add this line to fetch sent voicemails on load
     // fetchArchivedVoicemails() // Add this line to fetch archived voicemails on load
   }, [])
   
@@ -253,14 +255,14 @@ const Voicemail: React.FC = () => {
     
     // If switching to the inbox tab, refresh the voicemails and messages
     if (newValue === 1) {
-      fetchVoicemails()
-   
+      fetchContacts()   
     }
 
     // If switching to the contacts tab, refresh the contacts
     else if (newValue === 2) {
-      fetchContacts()
+      fetchInternalizedVoicemails()
     }
+    
   }
 
   // Fetch voicemails from the user's basket
@@ -269,121 +271,71 @@ const Voicemail: React.FC = () => {
     try {
       // List messages from p2p voicemail message box
       const messages = await messageBoxClient.listMessages({
-        messageBox: 'p2p voicemail rebuild messagebox'
+        messageBox: 'p2p voicemail rebuild new messagebox'
       })
+      console.log('p2p voicemail rebuild new messagebox messages:', messages)
       
-      console.log('p2p voicemail rebuild messagebox messages:', messages)
+   
+        const internalizedOutputs = await walletClient.listOutputs({
+          basket: 'internalize to new basket',
+          include: 'entire transactions',
+          limit: 100 // Add a high limit to get all outputs
+        })
+    
+        
+   
+      const internalizedTxIds = new Set(
+        internalizedOutputs.outputs.map((output) => output.outpoint.split('.')[0])
+      );
       
-
-      // Process P2P messages to find transactions
-      const p2pVoicemails = await Promise.all(
+      // Acknowledge messages that have already been internalized
+      await Promise.all(
         messages.map(async (msg) => {
           try {
-            const body = JSON.parse(msg.body)
-            const transaction = JSON.parse(body.message)
-            
-            // Create a Transaction object from the tx array
-            const tx = Transaction.fromBEEF(transaction.tx, transaction.txid)
-            if (!tx) {
-              console.error('Failed to create transaction from BEEF data')
-              return null
-            }
-            
-            // Get the locking script from the first output
-            const lockingScript = tx.outputs[0].lockingScript
-            
-            // Decode the PushDrop data
-            const decodedVoicemail = PushDrop.decode(lockingScript)
-            
-            if (!decodedVoicemail || !decodedVoicemail.fields || decodedVoicemail.fields.length < 2) {
-              console.error('Invalid PushDrop data structure:', decodedVoicemail)
-              return null
+            const body = JSON.parse(msg.body);
+            const transaction = JSON.parse(body.message);
+            const txid = transaction.txid;
+
+            let basket: BasketInsertion = {
+              basket: 'internalize to new basket'
             }
 
-            // Get sender information from the message itself
-            const sender = msg.sender || 'Unknown'
-            console.log(sender + " = sender")
-            
-            const encryptedAudio = decodedVoicemail.fields[1]
-            
-            // Decrypt the audio data with the sender's key
-            let decryptedAudioData
-            try {
-              decryptedAudioData = await walletClient.decrypt({
-                ciphertext: encryptedAudio,
-                protocolID: [0, 'p2p voicemail rebuild'],
-                keyID: '1',
-                counterparty: sender
-              })
-            } catch (error) {
-              console.error('Failed to decrypt audio with sender key')
-              return null
+            let output: InternalizeOutput = {
+              outputIndex: 0,
+              protocol: 'basket insertion',
+              insertionRemittance: basket
             }
-            
-            // Convert to audio format
-            const audioBlob = new Blob([new Uint8Array(decryptedAudioData.plaintext)], { type: 'audio/wav' })
-            const audioUrl = URL.createObjectURL(audioBlob)
-            
-            // Get message if it exists (field index 3)
-            let message = ''
-            if (decodedVoicemail.fields.length > 3 && decodedVoicemail.fields[3]) {
-              try {
-                const encryptedMessage = decodedVoicemail.fields[3]
-                let decryptedMessageData
-                try {
-                  decryptedMessageData = await walletClient.decrypt({
-                    ciphertext: encryptedMessage,
-                    protocolID: [0, 'p2p voicemail rebuild'],
-                    keyID: '1',
-                    counterparty: sender
-                  })
-                } catch (error) {
-                  console.warn('Message blank')
-                  message = '' // Set empty message if decryption fails
-                }
-                if (decryptedMessageData) {
-                  message = Utils.toUTF8(decryptedMessageData.plaintext)
-                }
-              } catch (messageError) {
-                console.warn('Error decrypting message:', messageError)
-              }
+
+            let args: InternalizeActionArgs = {
+              tx: transaction.tx as AtomicBEEF,
+              description: 'Internalize voicemail transaction',
+              outputs: [output]
             }
+
+            //internalize to basket
+            // Internalize the action to the recipient's basket
+            await walletClient.internalizeAction(args);
             
-            return {
-              id: transaction.txid,
-              sender,
-              timestamp: body.timestamp || Date.now(),
-              satoshis: tx.outputs[0].satoshis || 0,
-              audioUrl,
-              message,
-              lockingScript: lockingScript.toHex(),
-              source: 'listMessages' as const
-            } as VoicemailItem
+            // If this message's transaction is already internalized, acknowledge it
+            if (internalizedTxIds.has(txid)) {
+              await messageBoxClient.acknowledgeMessage({
+                messageIds: [msg.messageId]
+              });
+              console.log('Acknowledged message:', msg.messageId);
+            }
           } catch (error) {
-            console.error('Error processing P2P voicemail:', error)
-            return null
+            console.error('Error processing message for acknowledgment:', error);
           }
         })
-      )
+      );
+
+      // Fetch internalized voicemails after processing messages
+      fetchInternalizedVoicemails();
       
-      const validP2pVoicemails = p2pVoicemails.filter((voicemail): voicemail is VoicemailItem => voicemail !== null)
-      
-      // Sort the voicemails
-      const sortedVoicemails = sortVoicemails(validP2pVoicemails, sortField, sortOrder)
-      
-      // Update the voicemails state and then clear the loading state
-      await new Promise<void>(resolve => {
-        setVoicemails(sortedVoicemails)
-        // Use setTimeout to ensure the state update has been processed
-        setTimeout(() => {
-          setIsLoadingVoicemails(false)
-          resolve()
-        }, 0)
-      })
     } catch (error) {
       console.error('Error fetching voicemails:', error)
       setIsLoadingVoicemails(false)
-    }
+    } 
   }
   
   // Function to sort voicemails based on field and order
@@ -570,11 +522,18 @@ const Voicemail: React.FC = () => {
         counterparty: selectedIdentity.identityKey
       })
       
+      // Get the sender's public key
+      const keyResult = await walletClient.getPublicKey({ identityKey: true })
+      console.log(keyResult.publicKey + " = senderIdentity")
+      if (!keyResult || !keyResult.publicKey) {
+        throw new Error('Failed to get sender public key')
+      }
+      
       // Create a PushDrop transaction with the encrypted voicemail
       const pushdrop = new PushDrop(walletClient)
       const bitcoinOutputScript = await pushdrop.lock(
         [
-          Utils.toArray(selectedIdentity.identityKey, 'utf8'), // Recipient's identity key
+          Utils.toArray(keyResult.publicKey, 'utf8'), // Sender's public key
           encryptedAudio.ciphertext, // Encrypted audio data
           encryptedTimestamp.ciphertext, // Encrypted timestamp
           ...(encryptedMessage ? [encryptedMessage] : []) // Add encrypted message if it exists
@@ -604,9 +563,9 @@ const Voicemail: React.FC = () => {
       await messageBoxClient.sendMessage({
         recipient: selectedIdentity.identityKey,
         messageId: voicemailTransaction.txid,
-        messageBox: 'p2p voicemail rebuild messagebox',
+        messageBox: 'p2p voicemail rebuild new messagebox',
         body: {
-          type: 'p2p voicemail rebuild messagebox',
+          type: 'p2p voicemail rebuild new messagebox',
           txid: voicemailTransaction.txid,
           satoshis: satoshiAmount,
           timestamp: timestamp,
@@ -651,16 +610,111 @@ const Voicemail: React.FC = () => {
   const handleRedeemSatoshis = async (voicemail: VoicemailItem) => {
     setSelectedVoicemail(voicemail);
     setRedeemOpen(true);
-    // Remove the line below to prevent the popup from appearing in the inbox
-    // setRedemptionComingSoonOpen(true);
   }
   
   // Process the redemption of satoshis
   const processRedemption = async () => {
-    console.log("processing redemption soon")
-    // Add the line below to trigger the popup after clicking Redeem Satoshis in the dialog
-    setRedemptionComingSoonOpen(true);
-  }
+    if (!selectedVoicemail) return;
+    
+    try {
+      // Get the transaction ID from the voicemail
+      const txid = selectedVoicemail.id;
+      
+      // Fetch the BEEF data for the transaction
+      const internalizedOutputs = await walletClient.listOutputs({
+        basket: 'internalize to new basket',
+        include: 'entire transactions'
+      });
+      
+      // Create a description for the redemption
+      let description = `Redeem ${selectedVoicemail.satoshis} satoshis from voicemail`;
+      if (description.length > 128) { 
+        description = description.substring(0, 128); 
+      }
+      
+      // Get the transaction data
+      const tx = Transaction.fromBEEF(internalizedOutputs.BEEF as number[], txid);
+      if (!tx) {
+        throw new Error('Failed to create transaction from BEEF data');
+      }
+      const lockingScript = tx.outputs[0].lockingScript;
+      
+      // Create the transaction to redeem the satoshis
+      const { signableTransaction } = await walletClient.createAction({
+        description,
+        inputBEEF: internalizedOutputs.BEEF as number[],
+        inputs: [{
+          inputDescription: 'Redeem voicemail satoshis',
+          outpoint: `${txid}.0`,
+          unlockingScriptLength: 73
+        }],
+        outputs: [], // No outputs - just redeem the satoshis
+        options: {
+          randomizeOutputs: false
+        }
+      });
+      
+      if (signableTransaction === undefined) {
+        throw new Error('Failed to create signable transaction');
+      }
+      
+      const partialTx = Transaction.fromBEEF(signableTransaction.tx);
+      
+      // Unlock the PushDrop token
+      const unlocker = new PushDrop(walletClient).unlock(
+        [0, 'p2p voicemail rebuild'],
+        '1',
+        'self',
+        'all',
+        false,
+        selectedVoicemail.satoshis,
+        lockingScript
+      );
+      
+      const unlockingScript = await unlocker.sign(partialTx, 0);
+      
+      // Sign the transaction
+      const signResult = await walletClient.signAction({
+        reference: signableTransaction.reference,
+        spends: {
+          0: {
+            unlockingScript: unlockingScript.toHex()
+          }
+        }
+      });
+      
+      console.log('Satoshis redeemed successfully:', signResult);
+      
+      // Remove the redeemed voicemail from the list
+      setInternalizedVoicemails(prevVoicemails => 
+        prevVoicemails.filter(v => v.id !== selectedVoicemail.id)
+      );
+      
+      // Show success notification
+      setNotification({
+        open: true,
+        message: `Successfully redeemed ${selectedVoicemail.satoshis.toLocaleString()} satoshis!`,
+        type: 'success',
+        title: 'Success'
+      });
+      
+      // Force a refresh of internalized voicemails
+      fetchInternalizedVoicemails();
+      
+    } catch (error) {
+      console.error('Error redeeming satoshis:', error);
+      setNotification({
+        open: true,
+        message: 'Failed to redeem satoshis. Please try again.',
+        type: 'error',
+        title: 'Error'
+      });
+    } finally {
+      // Close the redemption dialog
+      setRedeemOpen(false);
+      setSelectedVoicemail(null);
+    }
+  };
 
   // Function to clear the selected identity and reset the search field
   const clearSelectedIdentity = () => {
@@ -802,6 +856,7 @@ const Voicemail: React.FC = () => {
   const fetchContacts = async () => {
     setIsLoadingContacts(true)
     try {
+
       const contactsFromBasket = await walletClient.listOutputs({
         basket: 'p2p voicemail contacts',
         include: 'entire transactions'
@@ -977,21 +1032,140 @@ const Voicemail: React.FC = () => {
   };
 
 
- 
 
 
-  // Add useEffect to fetch messages when the inbox tab is active
-  useEffect(() => {
-    if (activeTab === 1) {
-      fetchVoicemails();
+  // Add new function to fetch internalized voicemails
+  const fetchInternalizedVoicemails = async () => {
+    try {
+      setIsLoadingInternalized(true);
+      const voicemailsFromBasket = await walletClient.listOutputs({
+        basket: 'internalize to new basket',
+        include: 'entire transactions',
+        limit: 1000 // Increased limit to get all voicemails
+      });
+      console.log('voicemailsFromBasket', voicemailsFromBasket);
+      
+      if (!voicemailsFromBasket || !voicemailsFromBasket.outputs) {
+        setInternalizedVoicemails([]);
+        return;
+      }
+
+      const processedVoicemails = await Promise.all(
+        voicemailsFromBasket.outputs.map(async (output: any) => {
+          try {
+            const txId = output.outpoint.split('.')[0];
+            console.log('Processing transaction:', txId);
+            
+            const tx = Transaction.fromBEEF(voicemailsFromBasket.BEEF as number[], txId);
+            
+            if (!tx || !tx.outputs || !tx.outputs[0]) {
+              console.error('Invalid transaction structure for txId:', txId);
+              return null;
+            }
+
+            const lockingScript = tx.outputs[0].lockingScript;
+            const decodedVoicemail = PushDrop.decode(lockingScript);
+            
+            if (!decodedVoicemail || !decodedVoicemail.fields || decodedVoicemail.fields.length < 2) {
+              console.error('Invalid PushDrop data structure for txId:', txId);
+              return null;
+            }
+
+            // Get sender from first field
+            const sender = Utils.toUTF8(decodedVoicemail.fields[0]);
+            console.log('Processing voicemail from sender:', sender);
+            
+            const encryptedAudio = decodedVoicemail.fields[1];
+            
+            // Decrypt the audio data with the sender's key
+            let decryptedAudioData;
+            
+              console.log('Attempting to decrypt audio as recipient');
+              decryptedAudioData = await walletClient.decrypt({
+                ciphertext: encryptedAudio,
+                protocolID: [0, 'p2p voicemail rebuild'],
+                keyID: '1',
+                counterparty: sender  // Changed from sender to 'self' since we are the recipient
+              });
+              console.log('Successfully decrypted audio');
+            
+            
+            // Convert to audio format
+            const audioBlob = new Blob([new Uint8Array(decryptedAudioData.plaintext)], { type: 'audio/wav' });
+            const audioUrl = URL.createObjectURL(audioBlob);
+            
+            // Check if timestamp field exists (field index 2)
+            let timestamp = Date.now(); // Default to current time if no timestamp
+            if (decodedVoicemail.fields.length > 2) {
+              try {
+                const encryptedTimestamp = decodedVoicemail.fields[2];
+                console.log('Attempting to decrypt timestamp');
+                const decryptedTimestampData = await walletClient.decrypt({
+                  ciphertext: encryptedTimestamp,
+                  protocolID: [0, 'p2p voicemail rebuild'],
+                  keyID: '1',
+                  counterparty: sender  // Changed from sender to 'self'
+                });
+                timestamp = parseInt(Utils.toUTF8(decryptedTimestampData.plaintext), 10);
+                console.log('Successfully decrypted timestamp:', timestamp);
+              } catch (timestampError) {
+                console.warn('Error decrypting timestamp:', timestampError);
+              }
+            }
+            
+            // Check if message field exists (field index 3)
+            let decryptedMessage = '';
+            if (decodedVoicemail.fields.length > 3 && decodedVoicemail.fields[3]) {
+              try {
+                const encryptedMessage = decodedVoicemail.fields[3];
+                console.log('Attempting to decrypt message');
+                const decryptedMessageData = await walletClient.decrypt({
+                  ciphertext: encryptedMessage,
+                  protocolID: [0, 'p2p voicemail rebuild'],
+                  keyID: '1',
+                  counterparty: sender  // Changed from sender to 'self'
+                });
+                decryptedMessage = Utils.toUTF8(decryptedMessageData.plaintext);
+                console.log('Successfully decrypted message:', decryptedMessage);
+              } catch (messageError) {
+                console.warn('Error decrypting message:', messageError);
+              }
+            }
+
+            const voicemailItem: VoicemailItem = {
+              id: txId,
+              sender,
+              timestamp,
+              satoshis: tx.outputs[0].satoshis || 0,
+              audioUrl,
+              message: decryptedMessage,
+              lockingScript: lockingScript.toHex()
+            };
+
+            console.log('Successfully processed voicemail:', voicemailItem);
+            return voicemailItem;
+          } catch (error) {
+            console.error('Error processing internalized voicemail:', error);
+            return null;
+          }
+        })
+      );
+
+      // Filter out any null results and sort by timestamp
+      const validVoicemails = processedVoicemails.filter((voicemail): voicemail is VoicemailItem => voicemail !== null);
+      console.log('Valid voicemails found:', validVoicemails.length);
+
+      // Sort voicemails by timestamp (newest first)
+      const sortedVoicemails = validVoicemails.sort((a, b) => b.timestamp - a.timestamp);
+
+      setInternalizedVoicemails(sortedVoicemails);
+    } catch (error) {
+      console.error('Error fetching internalized voicemails:', error);
+    } finally {
+      setIsLoadingInternalized(false);
     }
-  }, [activeTab]);
+  };
 
-  // Function to close both the Redeem Satoshis dialog and the Redemptions coming soon popup
-  const closeRedemptionDialogs = () => {
-    setRedeemOpen(false);
-    setRedemptionComingSoonOpen(false);
-  }
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -1179,127 +1353,7 @@ const Voicemail: React.FC = () => {
         }}
       >
         <Tab label="Create Voicemail" />
-        <Tab 
-          label={
-            <Box sx={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
-              Inbox{!isLoadingVoicemails && ` (${voicemails.length})`}
-              {isLoadingVoicemails ? (
-                <Box 
-                  component="span" 
-                  sx={{ 
-                    ml: 1,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '16px',
-                    height: '16px',
-                    position: 'relative'
-                  }}
-                >
-                  <Box 
-                    component="span" 
-                    sx={{ 
-                      position: 'absolute',
-                      width: '4px',
-                      height: '4px',
-                      borderRadius: '50%',
-                      backgroundColor: 'text.primary',
-                      animation: 'pulse 1.5s infinite ease-in-out',
-                      '&:nth-of-type(1)': {
-                        left: '0px',
-                        animationDelay: '0s'
-                      },
-                      '&:nth-of-type(2)': {
-                        left: '6px',
-                        animationDelay: '0.2s'
-                      },
-                      '&:nth-of-type(3)': {
-                        left: '12px',
-                        animationDelay: '0.4s'
-                      },
-                      '@keyframes pulse': {
-                        '0%, 100%': {
-                          opacity: 0.2,
-                          transform: 'scale(0.8)'
-                        },
-                        '50%': {
-                          opacity: 1,
-                          transform: 'scale(1.2)'
-                        }
-                      }
-                    }}
-                  />
-                  <Box 
-                    component="span" 
-                    sx={{ 
-                      position: 'absolute',
-                      width: '4px',
-                      height: '4px',
-                      borderRadius: '50%',
-                      backgroundColor: 'text.primary',
-                      animation: 'pulse 1.5s infinite ease-in-out',
-                      '&:nth-of-type(1)': {
-                        left: '0px',
-                        animationDelay: '0s'
-                      },
-                      '&:nth-of-type(2)': {
-                        left: '6px',
-                        animationDelay: '0.2s'
-                      },
-                      '&:nth-of-type(3)': {
-                        left: '12px',
-                        animationDelay: '0.4s'
-                      },
-                      '@keyframes pulse': {
-                        '0%, 100%': {
-                          opacity: 0.2,
-                          transform: 'scale(0.8)'
-                        },
-                        '50%': {
-                          opacity: 1,
-                          transform: 'scale(1.2)'
-                        }
-                      }
-                    }}
-                  />
-                  <Box 
-                    component="span" 
-                    sx={{ 
-                      position: 'absolute',
-                      width: '4px',
-                      height: '4px',
-                      borderRadius: '50%',
-                      backgroundColor: 'text.primary',
-                      animation: 'pulse 1.5s infinite ease-in-out',
-                      '&:nth-of-type(1)': {
-                        left: '0px',
-                        animationDelay: '0s'
-                      },
-                      '&:nth-of-type(2)': {
-                        left: '6px',
-                        animationDelay: '0.2s'
-                      },
-                      '&:nth-of-type(3)': {
-                        left: '12px',
-                        animationDelay: '0.4s'
-                      },
-                      '@keyframes pulse': {
-                        '0%, 100%': {
-                          opacity: 0.2,
-                          transform: 'scale(0.8)'
-                        },
-                        '50%': {
-                          opacity: 1,
-                          transform: 'scale(1.2)'
-                        }
-                      }
-                    }}
-                  />
-                </Box>
-              ) : null}
-            </Box>
-          } 
-        />
+
 
 
         <Tab label={
@@ -1420,6 +1474,127 @@ const Voicemail: React.FC = () => {
               </Box>
             ) : (
               <Box component="span" sx={{ ml: 1 }}>({contacts.length})</Box>
+            )}
+          </Box>
+        } />
+        <Tab label={
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            Inbox
+            {isLoadingInternalized ? (
+              <Box 
+                component="span" 
+                sx={{ 
+                  ml: 1,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '16px',
+                  height: '16px',
+                  position: 'relative'
+                }}
+              >
+                <Box 
+                  component="span" 
+                  sx={{ 
+                    position: 'absolute',
+                    width: '4px',
+                    height: '4px',
+                    borderRadius: '50%',
+                    backgroundColor: 'text.primary',
+                    animation: 'pulse 1.5s infinite ease-in-out',
+                    '&:nth-of-type(1)': {
+                      left: '0px',
+                      animationDelay: '0s'
+                    },
+                    '&:nth-of-type(2)': {
+                      left: '6px',
+                      animationDelay: '0.2s'
+                    },
+                    '&:nth-of-type(3)': {
+                      left: '12px',
+                      animationDelay: '0.4s'
+                    },
+                    '@keyframes pulse': {
+                      '0%, 100%': {
+                        opacity: 0.2,
+                        transform: 'scale(0.8)'
+                      },
+                      '50%': {
+                        opacity: 1,
+                        transform: 'scale(1.2)'
+                      }
+                    }
+                  }}
+                />
+                <Box 
+                  component="span" 
+                  sx={{ 
+                    position: 'absolute',
+                    width: '4px',
+                    height: '4px',
+                    borderRadius: '50%',
+                    backgroundColor: 'text.primary',
+                    animation: 'pulse 1.5s infinite ease-in-out',
+                    '&:nth-of-type(1)': {
+                      left: '0px',
+                      animationDelay: '0s'
+                    },
+                    '&:nth-of-type(2)': {
+                      left: '6px',
+                      animationDelay: '0.2s'
+                    },
+                    '&:nth-of-type(3)': {
+                      left: '12px',
+                      animationDelay: '0.4s'
+                    },
+                    '@keyframes pulse': {
+                      '0%, 100%': {
+                        opacity: 0.2,
+                        transform: 'scale(0.8)'
+                      },
+                      '50%': {
+                        opacity: 1,
+                        transform: 'scale(1.2)'
+                      }
+                    }
+                  }}
+                />
+                <Box 
+                  component="span" 
+                  sx={{ 
+                    position: 'absolute',
+                    width: '4px',
+                    height: '4px',
+                    borderRadius: '50%',
+                    backgroundColor: 'text.primary',
+                    animation: 'pulse 1.5s infinite ease-in-out',
+                    '&:nth-of-type(1)': {
+                      left: '0px',
+                      animationDelay: '0s'
+                    },
+                    '&:nth-of-type(2)': {
+                      left: '6px',
+                      animationDelay: '0.2s'
+                    },
+                    '&:nth-of-type(3)': {
+                      left: '12px',
+                      animationDelay: '0.4s'
+                    },
+                    '@keyframes pulse': {
+                      '0%, 100%': {
+                        opacity: 0.2,
+                        transform: 'scale(0.8)'
+                      },
+                      '50%': {
+                        opacity: 1,
+                        transform: 'scale(1.2)'
+                      }
+                    }
+                  }}
+                />
+              </Box>
+            ) : (
+              <Box component="span" sx={{ ml: 1 }}>({internalizedVoicemails.length})</Box>
             )}
           </Box>
         } />
@@ -1925,149 +2100,9 @@ const Voicemail: React.FC = () => {
         </>
       )}
       
-      {activeTab === 1 && (
-        <Card>
-          <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6">
-                Inbox
-              </Typography>
-              
-              {/* Add sorting controls */}
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <FormControl size="small" sx={{ minWidth: 120 }}>
-                  <InputLabel id="sort-field-label">Sort by</InputLabel>
-                  <Select
-                    labelId="sort-field-label"
-                    value={sortField}
-                    label="Sort by"
-                    onChange={handleSortFieldChange}
-                  >
-                    <MenuItem value="time">Time</MenuItem>
-                    <MenuItem value="satoshis">Satoshis</MenuItem>
-                  </Select>
-                </FormControl>
-                
-                <FormControl size="small" sx={{ minWidth: 120 }}>
-                  <InputLabel id="sort-order-label">Order</InputLabel>
-                  <Select
-                    labelId="sort-order-label"
-                    value={sortOrder}
-                    label="Order"
-                    onChange={handleSortOrderChange}
-                  >
-                    <MenuItem value="desc">Newest/Highest</MenuItem>
-                    <MenuItem value="asc">Oldest/Lowest</MenuItem>
-                  </Select>
-                </FormControl>
-              </Box>
-            </Box>
-            
-            {isLoadingVoicemails ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, p: 3 }}>
-                <CircularProgress size={24} />
-                <Typography variant="body2" color="text.secondary">
-                  Loading messages...
-                </Typography>
-              </Box>
-            ) : voicemails.length === 0 ? (
-              <Typography variant="body1" color="text.secondary">
-                No new messages.
-              </Typography>
-            ) : (
-              <List>
-                {voicemails.map((message, index) => (
-                  <ListItem
-                    key={message.id}
-                    sx={{ 
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      borderRadius: 1,
-                      mb: 1,
-                      flexDirection: 'column',
-                      alignItems: 'flex-start',
-                      '&:hover': {
-                        bgcolor: 'action.hover'
-                      }
-                    }}
-                  >
-                    <Box sx={{ width: '100%', display: 'flex', alignItems: 'flex-start' }}>
-                      <ListItemText
-                        primary={
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Typography 
-                                variant="subtitle1" 
-                                sx={{ 
-                                  fontWeight: 'bold',
-                                  color: 'text.secondary',
-                                  minWidth: '24px'
-                                }}
-                              >
-                                {index + 1}.
-                              </Typography>
-                              <Typography variant="subtitle1">
-                                From:
-                              </Typography>
-                              <IdentityCard identityKey={message.sender} />
-                            </Box>
-                          </Box>
-                        }
-                        secondary={
-                          <Box>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-                              <Typography variant="caption" color="text.secondary">
-                                {new Date(message.timestamp).toLocaleString()}
-                              </Typography>
-                            </Box>
-                            <Box sx={{ color: 'text.secondary', fontSize: '0.875rem', mt: 1 }}>
-                              <Tooltip title={message.id}>
-                                <a 
-                                  href={`https://whatsonchain.com/tx/${message.id}`}
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  style={{ textDecoration: 'underline', color: 'inherit' }}
-                                >
-                                  {message.id.substring(0, 8)}...{message.id.substring(message.id.length - 8)}
-                                </a>
-                              </Tooltip>
-                            </Box>
-                            <Typography variant="body2" sx={{ mt: 1 }}>
-                              {message.satoshis.toLocaleString()} satoshis attached
-                            </Typography>
-                            {message.message && (
-                              <Typography variant="body2" sx={{ mt: 1 }}>
-                                <strong>Message:</strong> {message.message}
-                              </Typography>
-                            )}
-                            <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
-                              <Button 
-                                variant="contained" 
-                                color="primary" 
-                                size="small"
-                                onClick={() => handleRedeemSatoshis(message)}
-                                disabled={isRedeeming}
-                              >
-                                {isRedeeming ? 'Redeeming...' : `Redeem ${message.satoshis.toLocaleString()} Satoshis`}
-                              </Button>
 
-                            </Box>
-                          </Box>
-                        }
-                      />
-                    </Box>
-                    <Box sx={{ width: '100%', px: 2, py: 1, mt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
-                      <audio controls src={message.audioUrl} style={{ width: '100%' }} />
-                    </Box>
-                  </ListItem>
-                ))}
-              </List>
-            )}
-          </CardContent>
-        </Card>
-      )}
       
-      {activeTab === 2 && (
+      {activeTab === 1 && (
         <Card>
           <CardContent>
             <Typography variant="h6" gutterBottom>
@@ -2214,117 +2249,81 @@ const Voicemail: React.FC = () => {
         </Card>
       )}
       
-      {activeTab === 3 && (
+      {activeTab === 2 && (
         <Card>
           <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Manage Contacts
+            {/* Add sorting controls */}
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6">
+                Inbox
             </Typography>
             
-            {/* Add Contact Form */}
-            <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
-              <Typography variant="subtitle1" gutterBottom>
-                Add New Contact
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <TextField
-                  label="Contact Name / Description"
-                  value={newContactName}
-                  onChange={(e) => setNewContactName(e.target.value)}
-                  fullWidth
-                  placeholder="Enter a name or description for this contact"
-                />
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <FormControl size="small" sx={{ minWidth: 120 }}>
+                  <InputLabel id="sort-field-label">Sort by</InputLabel>
+                  <Select
+                    labelId="sort-field-label"
+                    value={sortField}
+                    label="Sort by"
+                    onChange={handleSortFieldChange}
+                  >
+                    <MenuItem value="time">Time</MenuItem>
+                    <MenuItem value="satoshis">Satoshis</MenuItem>
+                  </Select>
+                </FormControl>
                 
-                <Box>
-                  <Typography variant="body2" gutterBottom>
-                    Search Identity
-                  </Typography>
-                  <IdentitySearchField 
-                    key={contactSearchKey}
-                    onIdentitySelected={(identity) => {
-                      setSelectedIdentity(identity)
-                    }}
-                  />
-                </Box>
-                
-                {selectedIdentity && (
-                  <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-                    <Typography variant="subtitle1" gutterBottom>
-                      Contact Preview
-                    </Typography>
-                    
-                    <Box sx={{ mb: 2 }}>
-                      <Typography variant="body2" color="text.secondary" gutterBottom>
-                        Name / Description:
-                      </Typography>
-                      <Typography variant="body1">
-                        {newContactName || 'No name provided'}
-                      </Typography>
-                    </Box>
-                    
-                    <Box sx={{ mb: 2 }}>
-                      <Typography variant="body2" color="text.secondary" gutterBottom>
-                        Identity:
-                      </Typography>
-                      <IdentityCard 
-                        identityKey={selectedIdentity.identityKey} 
-                      />
-                    </Box>
-                    
-                    <Button 
-                      variant="contained" 
-                      color="primary"
-                      fullWidth
-                      disabled={!newContactName.trim()}
-                      onClick={handleAddContact}
-                    >
-                      Create Encrypted On-Chain Contact
-                    </Button>
+                <FormControl size="small" sx={{ minWidth: 120 }}>
+                  <InputLabel id="sort-order-label">Order</InputLabel>
+                  <Select
+                    labelId="sort-order-label"
+                    value={sortOrder}
+                    label="Order"
+                    onChange={handleSortOrderChange}
+                  >
+                    <MenuItem value="desc">Newest/Highest</MenuItem>
+                    <MenuItem value="asc">Oldest/Lowest</MenuItem>
+                  </Select>
+                </FormControl>
                   </Box>
-                )}
-                
-                {addContactError && (
-                  <Typography color="error" variant="body2">
-                    {addContactError}
-                  </Typography>
-                )}
               </Box>
-            </Paper>
-            
-            {/* Contacts List */}
-            <Typography variant="subtitle1" gutterBottom>
-              Your Contacts
-            </Typography>
-            {isLoadingContacts ? (
+
+            {/* Rest of the internalized tab content */}
+            {isLoadingInternalized ? (
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, p: 3 }}>
                 <CircularProgress size={24} />
                 <Typography variant="body2" color="text.secondary">
-                  Loading contacts...
+                  Loading internalized voicemails...
                 </Typography>
               </Box>
-            ) : contacts.length === 0 ? (
+            ) : internalizedVoicemails.length === 0 ? (
               <Typography variant="body1" color="text.secondary">
-                You haven't added any contacts yet.
+                No voicemails found.
               </Typography>
             ) : (
               <List>
-                {contacts.map((contact, index) => (
+                  {internalizedVoicemails.map((voicemail, index) => (
                   <ListItem
-                    key={contact.identityKey}
+                      key={voicemail.id}
                     sx={{ 
                       border: '1px solid',
                       borderColor: 'divider',
                       borderRadius: 1,
-                      mb: 1
-                    }}
-                  >
+                        mb: 1,
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        '&:hover': {
+                          bgcolor: 'action.hover'
+                        }
+                      }}
+                    >
+                      <Box sx={{ width: '100%', display: 'flex', alignItems: 'flex-start' }}>
                     <ListItemText
                       primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Typography 
-                            component="span" 
+                                  variant="subtitle1" 
                             sx={{ 
-                              mr: 1, 
                               fontWeight: 'bold',
                               color: 'text.secondary',
                               minWidth: '24px'
@@ -2332,27 +2331,61 @@ const Voicemail: React.FC = () => {
                           >
                             {index + 1}.
                           </Typography>
-                          {contact.name}
+                                <Typography variant="subtitle1">
+                                  From:
+                                </Typography>
+                                <IdentityCard identityKey={voicemail.sender} />
+                              </Box>
                         </Box>
                       }
                       secondary={
-                        <Box sx={{ mt: 1 }}>
-                          <IdentityCard identityKey={contact.identityKey} />
+                            <Box>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+                                <Typography variant="caption" color="text.secondary">
+                                  {new Date(voicemail.timestamp).toLocaleString()}
+                                </Typography>
                         </Box>
-                      }
-                    />
-                    <IconButton 
+                              <Box sx={{ color: 'text.secondary', fontSize: '0.875rem', mt: 1 }}>
+                                <Tooltip title={voicemail.id}>
+                                  <a 
+                                    href={`https://whatsonchain.com/tx/${voicemail.id}`}
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    style={{ textDecoration: 'underline', color: 'inherit' }}
+                                  >
+                                    {voicemail.id.substring(0, 8)}...{voicemail.id.substring(voicemail.id.length - 8)}
+                                  </a>
+                                </Tooltip>
+                              </Box>
+                              <Typography variant="body2" sx={{ mt: 1 }}>
+                                {voicemail.satoshis.toLocaleString()} satoshis attached
+                              </Typography>
+                              {voicemail.message && (
+                                <Typography variant="body2" sx={{ mt: 1 }}>
+                                  <strong>Message:</strong> {voicemail.message}
+                                </Typography>
+                              )}
+                              {/* Add the Redeem button */}
+                              <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
+                                <Button 
+                                  variant="contained" 
+                                  color="primary" 
                       size="small" 
-                      onClick={() => handleRemoveContact(contact.identityKey)}
-                      sx={{ 
-                        color: 'text.secondary',
-                        '&:hover': {
-                          color: 'error.main'
-                        }
-                      }}
-                    >
-                      <DeleteIcon />
-                    </IconButton>
+                                  onClick={() => handleRedeemSatoshis(voicemail)}
+                                  disabled={isRedeeming}
+                                >
+                                  {isRedeeming ? 'Redeeming...' : `Redeem ${voicemail.satoshis.toLocaleString()} Satoshis`}
+                                </Button>
+                              </Box>
+                            </Box>
+                          }
+                        />
+                      </Box>
+                      {voicemail.audioUrl && (
+                        <Box sx={{ width: '100%', px: 2, py: 1, mt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+                          <audio controls src={voicemail.audioUrl} style={{ width: '100%' }} />
+                        </Box>
+                      )}
                   </ListItem>
                 ))}
               </List>
@@ -2361,8 +2394,12 @@ const Voicemail: React.FC = () => {
         </Card>
       )}
       
+      
       {/* Redemption Confirmation Dialog */}
-      <Dialog open={redeemOpen} onClose={() => { setRedeemOpen(false) }}>
+      <Dialog 
+        open={redeemOpen} 
+        onClose={() => !isRedeeming && setRedeemOpen(false)} // Prevent closing when redeeming
+      >
         <DialogTitle>Redeem Satoshis</DialogTitle>
         <DialogContent>
           <Box>
@@ -2382,16 +2419,40 @@ const Voicemail: React.FC = () => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRedeemOpen(false)}>Cancel</Button>
+          {!isRedeeming && (
+            <Button onClick={() => setRedeemOpen(false)}>
+              Cancel
+            </Button>
+          )}
           <Button 
-            onClick={() => processRedemption()} 
+            onClick={processRedemption} 
             color="primary" 
-            variant="outlined"
-            disabled={isRedeeming || isArchiving}
+            variant="contained"
+            disabled={isRedeeming}
+            sx={{ 
+              minWidth: 140,
+              position: 'relative'
+            }}
           >
-            {isRedeeming ? 'Redeeming...' : 'Redeem Satoshis'}
+            {isRedeeming ? (
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 1
+              }}>
+                <CircularProgress 
+                  size={20} 
+                  color="inherit"
+                />
+                <Typography variant="button">
+                  Redeeming...
+                </Typography>
+              </Box>
+            ) : (
+              'Redeem Satoshis'
+            )}
           </Button>
-
         </DialogActions>
       </Dialog>
 
@@ -2519,21 +2580,6 @@ const Voicemail: React.FC = () => {
         title={notification.title}
         onClose={() => setNotification(prev => ({ ...prev, open: false }))}
       />
-
-      {/* Redemption Coming Soon Dialog */}
-      <Dialog open={redemptionComingSoonOpen} onClose={() => setRedemptionComingSoonOpen(false)}>
-        <DialogTitle>Redemption Notice</DialogTitle>
-        <DialogContent>
-          <Typography variant="body1">
-            Redemptions coming soon
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeRedemptionDialogs} color="primary">
-            Close
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Container>
   )
 }
