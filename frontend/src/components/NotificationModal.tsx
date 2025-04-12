@@ -32,6 +32,7 @@ interface NotificationModalProps {
   title: string
   message: string
   type?: 'success' | 'error' | 'info'
+  link?: string | undefined
 }
 
 const NotificationModal: React.FC<NotificationModalProps> = ({ 
@@ -39,7 +40,8 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
   onClose, 
   title, 
   message,
-  type = 'info'
+  type = 'info',
+  link
 }) => {
   // Define colors based on notification type
   const getColor = () => {
@@ -118,6 +120,21 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
         
         <Typography id='notification-modal-description' sx={{ mt: 2, mb: 3, lineHeight: 1.6 }}>
           {message}
+          {link && (
+            <Box sx={{ mt: 1 }}>
+              <a 
+                href={link}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ 
+                  color: color,
+                  textDecoration: 'underline'
+                }}
+              >
+                View on WhatsOnChain
+              </a>
+            </Box>
+          )}
         </Typography>
         
         <Button 

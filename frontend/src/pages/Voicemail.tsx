@@ -209,11 +209,13 @@ const Voicemail: React.FC = () => {
     message: string;
     type: 'success' | 'error' | 'info';
     title: string;
+    link?: string;
   }>({
     open: false,
     message: '',
     type: 'info',
-    title: 'Info'
+    title: 'Info',
+    link: undefined
   });
 
   // Add state for forget contact confirmation dialog
@@ -587,9 +589,10 @@ const Voicemail: React.FC = () => {
       // Use NotificationModal instead of alert
       setNotification({
         open: true,
-        message: 'Voicemail sent successfully!',
-        type: 'success',
-        title: 'Success'
+        message: `Voicemail sent successfully!`,
+        type: 'success' as const,
+        title: 'Voicemail Sent',
+        link: `https://whatsonchain.com/tx/${voicemailTransaction.txid}`
       });
       
     } catch (error) {
@@ -639,6 +642,9 @@ const Voicemail: React.FC = () => {
       }
       const lockingScript = tx.outputs[0].lockingScript;
       
+      const decodedPushDrop = PushDrop.decode(lockingScript);
+      const senderKey = Utils.toUTF8(decodedPushDrop.fields[0]);
+      
       // Create the transaction to redeem the satoshis
       const { signableTransaction } = await walletClient.createAction({
         description,
@@ -664,7 +670,7 @@ const Voicemail: React.FC = () => {
       const unlocker = new PushDrop(walletClient).unlock(
         [0, 'p2p voicemail rebuild'],
         '1',
-        'self',
+        senderKey,  // Use sender's key instead of 'self'
         'all',
         false,
         selectedVoicemail.satoshis,
@@ -685,18 +691,25 @@ const Voicemail: React.FC = () => {
       
       console.log('Satoshis redeemed successfully:', signResult);
       
+      // Show success notification with redemption txid
+      if (!signResult.txid) {
+        throw new Error('Transaction ID is missing');
+      }
+
+      const redemptionTxid = signResult.txid as string;
+
+      setNotification({
+        open: true,
+        message: `Successfully redeemed voicemail!`,
+        type: 'success' as const,
+        title: 'Redemption Successful',
+        link: `https://whatsonchain.com/tx/${redemptionTxid}`
+      });
+      
       // Remove the redeemed voicemail from the list
       setInternalizedVoicemails(prevVoicemails => 
         prevVoicemails.filter(v => v.id !== selectedVoicemail.id)
       );
-      
-      // Show success notification
-      setNotification({
-        open: true,
-        message: `Successfully redeemed ${selectedVoicemail.satoshis.toLocaleString()} satoshis!`,
-        type: 'success',
-        title: 'Success'
-      });
       
       // Force a refresh of internalized voicemails
       fetchInternalizedVoicemails();
@@ -752,13 +765,14 @@ const Voicemail: React.FC = () => {
     }
 
     try {
-      await processCreateEncryptedContact(newContactName, selectedIdentity.identityKey);
+      const txid = await processCreateEncryptedContact(newContactName, selectedIdentity.identityKey);
       
       setNotification({
         open: true,
-        message: 'Contact added successfully!',
-        type: 'success',
-        title: 'Success'
+        message: `Contact "${newContactName}" added successfully!`,
+        type: 'success' as const,
+        title: 'Contact Added',
+        link: `https://whatsonchain.com/tx/${txid}`
       });
       setSelectedIdentity(null);
       setNewContactName(''); // Clear the contact name field
@@ -841,6 +855,7 @@ const Voicemail: React.FC = () => {
       }
 
       setContacts(prevContacts => [...prevContacts, newContact])
+      return tx.txid; // Return the transaction ID
     } catch (error) {
       console.error('Error creating encrypted contact:', error)
       throw error
@@ -1005,12 +1020,19 @@ const Voicemail: React.FC = () => {
       // Remove the forgotten contact from the list
       setContacts(contacts.filter(c => c.identityKey !== contactToForget.identityKey));
       
-      // Show success notification
+      // Show success notification with transaction ID and WhatsOnChain link
+      if (!signResult.txid) {
+        throw new Error('Transaction ID is missing');
+      }
+
+      const redemptionTxid = signResult.txid as string;
+
       setNotification({
         open: true,
-        message: `Successfully forgotten contact "${contactToForget.name}" and redeemed satoshis!`,
-        type: 'success',
-        title: 'Success'
+        message: 'Successfully forgotten contact "' + contactToForget.name + '" and redeemed 1 satoshi!',
+        type: 'success' as const,
+        title: 'Contact Forgotten',
+        link: 'https://whatsonchain.com/tx/' + redemptionTxid
       });
       
       // Force a refresh of contacts
@@ -2292,7 +2314,7 @@ const Voicemail: React.FC = () => {
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, p: 3 }}>
                 <CircularProgress size={24} />
                 <Typography variant="body2" color="text.secondary">
-                  Loading internalized voicemails...
+                  Loading voicemails...
                 </Typography>
               </Box>
             ) : internalizedVoicemails.length === 0 ? (
@@ -2578,6 +2600,7 @@ const Voicemail: React.FC = () => {
         message={notification.message}
         type={notification.type}
         title={notification.title}
+        link={notification.link}
         onClose={() => setNotification(prev => ({ ...prev, open: false }))}
       />
     </Container>
