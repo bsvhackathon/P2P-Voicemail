@@ -355,16 +355,16 @@ const Voicemail: React.FC = () => {
   const handleSortFieldChange = (event: SelectChangeEvent<SortField>) => {
     const newField = event.target.value as SortField
     setSortField(newField)
-    // Re-sort the voicemails with the new field
-    setVoicemails(sortVoicemails(voicemails, newField, sortOrder))
+    // Re-sort the internalized voicemails with the new field
+    setInternalizedVoicemails(sortVoicemails(internalizedVoicemails, newField, sortOrder))
   }
   
   // Handle sort order change
   const handleSortOrderChange = (event: SelectChangeEvent<SortOrder>) => {
     const newOrder = event.target.value as SortOrder
     setSortOrder(newOrder)
-    // Re-sort the voicemails with the new order
-    setVoicemails(sortVoicemails(voicemails, sortField, newOrder))
+    // Re-sort the internalized voicemails with the new order
+    setInternalizedVoicemails(sortVoicemails(internalizedVoicemails, sortField, newOrder))
   }
   
   // Debug function to log voicemail details
@@ -1177,8 +1177,8 @@ const Voicemail: React.FC = () => {
       const validVoicemails = processedVoicemails.filter((voicemail): voicemail is VoicemailItem => voicemail !== null);
       console.log('Valid voicemails found:', validVoicemails.length);
 
-      // Sort voicemails by timestamp (newest first)
-      const sortedVoicemails = validVoicemails.sort((a, b) => b.timestamp - a.timestamp);
+      // Sort voicemails using current sort settings
+      const sortedVoicemails = sortVoicemails(validVoicemails, sortField, sortOrder);
 
       setInternalizedVoicemails(sortedVoicemails);
     } catch (error) {
