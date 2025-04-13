@@ -1231,7 +1231,7 @@ const Voicemail: React.FC = () => {
         sx: {
           borderRadius: 2,
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-          background: '#121212', // Solid dark background
+          background: '#1e1e1e', // Lighter dark background
           border: '1px solid rgba(255, 255, 255, 0.1)'
         }
       }}
@@ -1316,6 +1316,7 @@ const Voicemail: React.FC = () => {
           disabled={isSending}
           sx={{ 
             bgcolor: '#2e7d32',
+            color: 'white',
             '&:hover': {
               bgcolor: '#1b5e20'
             }
@@ -1336,7 +1337,7 @@ const Voicemail: React.FC = () => {
         sx: {
           borderRadius: 2,
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-          background: '#121212', // Solid dark background
+          background: '#1e1e1e', // Lighter dark background
           border: '1px solid rgba(255, 255, 255, 0.1)'
         }
       }}
@@ -1420,11 +1421,11 @@ const Voicemail: React.FC = () => {
                     fullWidth
                     sx={{ 
                       mt: 1,
-                      borderColor: 'rgba(247, 147, 26, 0.5)',
-                      color: '#f7931a',
+                      borderColor: 'rgba(46, 125, 50, 0.5)',
+                      color: '#2e7d32',
                       '&:hover': {
-                        borderColor: '#f7931a',
-                        backgroundColor: 'rgba(247, 147, 26, 0.05)'
+                        borderColor: '#2e7d32',
+                        backgroundColor: 'rgba(46, 125, 50, 0.05)'
                       }
                     }}
                     onClick={() => window.open(`https://whatsonchain.com/tx/${transactionStatus.txid}`, '_blank')}
@@ -1475,6 +1476,7 @@ const Voicemail: React.FC = () => {
             variant="contained"
             sx={{ 
               bgcolor: '#2e7d32',
+              color: 'white',
               '&:hover': {
                 bgcolor: '#1b5e20'
               }
@@ -1487,7 +1489,7 @@ const Voicemail: React.FC = () => {
           <Button 
             onClick={() => setTransactionConfirmOpen(false)} 
             color="primary"
-            sx={{ color: 'text.primary' }}
+            sx={{ color: 'white' }}
           >
             Close
           </Button>
