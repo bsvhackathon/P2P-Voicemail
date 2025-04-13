@@ -140,6 +140,12 @@ const DeleteIcon = () => (
   </svg>
 );
 
+type RedemptionStatus = {
+  status: 'pending' | 'success' | 'error';
+  message: string;
+  txid?: string;
+};
+
 const Voicemail: React.FC = () => {
   const [selectedIdentity, setSelectedIdentity] = useState<Identity | null>(null)
   const [isRecording, setIsRecording] = useState<boolean>(false)
@@ -167,7 +173,7 @@ const Voicemail: React.FC = () => {
   const [forgettingVoicemailId, setForgettingVoicemailId] = useState<string | null>(null)
   const [isLoadingMessages, setIsLoadingMessages] = useState<boolean>(false)
   const [internalizedVoicemails, setInternalizedVoicemails] = useState<VoicemailItem[]>([]);
-  const [isLoadingInternalized, setIsLoadingInternalized] = useState<boolean>(false);
+  const [isLoadingInternalized, setIsLoadingInternalized] = useState<boolean>(true);
   
   // Add back sorting state
   const [sortField, setSortField] = useState<SortField>('time')
@@ -233,6 +239,12 @@ const Voicemail: React.FC = () => {
     message: 'Waiting for transaction confirmation...'
   });
 
+  // Add new state for redemption confirmation dialog
+  const [redemptionStatus, setRedemptionStatus] = useState<RedemptionStatus>({
+    status: 'pending',
+    message: 'Ready to redeem'
+  });
+
   // Run a 1s interval for checking if MNC is running
   useAsyncEffect(async () => {
     const intervalId = setInterval(() => {
@@ -258,7 +270,6 @@ const Voicemail: React.FC = () => {
   useEffect(() => {
     fetchVoicemails()
     fetchContacts() // Add this line to fetch contacts on load
-    fetchInternalizedVoicemails() // Add this line to fetch sent voicemails on load
     // fetchArchivedVoicemails() // Add this line to fetch archived voicemails on load
   }, [])
   
@@ -268,12 +279,12 @@ const Voicemail: React.FC = () => {
     
     // If switching to the inbox tab, refresh the voicemails and messages
     if (newValue === 1) {
-      fetchContacts()   
+      // fetchContacts()   
     }
 
     // If switching to the contacts tab, refresh the contacts
     else if (newValue === 2) {
-      fetchVoicemails()
+      // fetchVoicemails()
     }
     
   }
@@ -648,13 +659,20 @@ const Voicemail: React.FC = () => {
     if (!selectedVoicemail) return;
     
     try {
+      setIsRedeeming(true); // Set isRedeeming to true when starting the redemption process
+      setRedemptionStatus({
+        status: 'pending',
+        message: 'Redeeming satoshis and forgetting voicemail...'
+      });
+      
       // Get the transaction ID from the voicemail
       const txid = selectedVoicemail.id;
       
-      // Fetch the BEEF data for the transaction
+      // Fetch the BEEF data for the transaction with a larger limit
       const internalizedOutputs = await walletClient.listOutputs({
         basket: 'internalize to new basket',
-        include: 'entire transactions'
+        include: 'entire transactions',
+        limit: 1000 // Increased limit to ensure we get all transactions
       });
       
       // Create a description for the redemption
@@ -663,11 +681,12 @@ const Voicemail: React.FC = () => {
         description = description.substring(0, 128); 
       }
       
-      // Get the transaction data
+      // Find the specific transaction in the BEEF data
       const tx = Transaction.fromBEEF(internalizedOutputs.BEEF as number[], txid);
       if (!tx) {
-        throw new Error('Failed to create transaction from BEEF data');
+        throw new Error(`Transaction ${txid} not found in BEEF data. Please try refreshing your voicemails and try again.`);
       }
+
       const lockingScript = tx.outputs[0].lockingScript;
       
       const decodedPushDrop = PushDrop.decode(lockingScript);
@@ -726,12 +745,11 @@ const Voicemail: React.FC = () => {
 
       const redemptionTxid = signResult.txid as string;
 
-      setNotification({
-        open: true,
-        message: `Successfully redeemed voicemail!`,
-        type: 'success' as const,
-        title: 'Redemption Successful',
-        link: `https://whatsonchain.com/tx/${redemptionTxid}`
+      // Update redemption status to success
+      setRedemptionStatus({
+        status: 'success',
+        message: 'Voicemail redeemed successfully!',
+        txid: redemptionTxid
       });
       
       // Remove the redeemed voicemail from the list
@@ -744,16 +762,13 @@ const Voicemail: React.FC = () => {
       
     } catch (error) {
       console.error('Error redeeming satoshis:', error);
-      setNotification({
-        open: true,
-        message: 'Failed to redeem satoshis. Please try again.',
-        type: 'error',
-        title: 'Error'
+      // Update redemption status to error with a more descriptive message
+      setRedemptionStatus({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to redeem satoshis. Please try refreshing your voicemails and try again.'
       });
     } finally {
-      // Close the redemption dialog
-      setRedeemOpen(false);
-      setSelectedVoicemail(null);
+      setIsRedeeming(false); // Set isRedeeming back to false when the process completes
     }
   };
 
@@ -1231,7 +1246,7 @@ const Voicemail: React.FC = () => {
         sx: {
           borderRadius: 2,
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-          background: '#1e1e1e', // Lighter dark background
+          background: '#1e1e1e',
           border: '1px solid rgba(255, 255, 255, 0.1)'
         }
       }}
@@ -1242,18 +1257,19 @@ const Voicemail: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontWeight: 'bold'
+          fontWeight: 'bold',
+          color: '#fff'
         }}>
           Confirm Send Voicemail
         </DialogTitle>
       <DialogContent sx={{ py: 3 }}>
         <Box>
           <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
+            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: '#fff' }}>
               <strong>To:</strong>
             </Typography>
-            <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.05)' }}>
-              <Box component="div" sx={{ mb: 1, color: 'text.primary' }}>
+            <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.2)', color: '#fff' }}>
+              <Box component="div" sx={{ mb: 1 }}>
                 {selectedIdentity?.name}
               </Box>
               <IdentityCard 
@@ -1263,30 +1279,30 @@ const Voicemail: React.FC = () => {
           </Box>
 
           <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
+            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: '#fff' }}>
               <strong>Recording:</strong>
             </Typography>
-            <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.05)' }}>
+            <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.2)' }}>
               <audio controls src={audioUrl || ''} style={{ width: '100%' }} />
             </Box>
           </Box>
 
           {message && (
             <Box sx={{ mb: 3 }}>
-              <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
+              <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: '#fff' }}>
                 <strong>Message:</strong>
               </Typography>
-              <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.05)', color: 'text.primary' }}>
+              <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.2)', color: '#fff' }}>
                 {message.replace(/\{[^}]*\}/g, '')}
               </Box>
             </Box>
           )}
 
           <Box>
-            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
+            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: '#fff' }}>
               <strong>Attached Satoshis:</strong>
             </Typography>
-            <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.05)', color: 'text.primary' }}>
+            <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.2)', color: '#fff' }}>
               {satoshiAmount.toLocaleString()} satoshis ({(satoshiAmount / 100000000).toFixed(8)} BSV)
             </Box>
           </Box>
@@ -1301,9 +1317,9 @@ const Voicemail: React.FC = () => {
           <Button 
             onClick={() => setConfirmSendOpen(false)}
             sx={{ 
-              color: 'text.primary',
+              color: '#fff',
               '&:hover': {
-                bgcolor: 'rgba(0, 0, 0, 0.05)'
+                bgcolor: 'rgba(255, 255, 255, 0.1)'
               }
             }}
           >
@@ -1316,7 +1332,7 @@ const Voicemail: React.FC = () => {
           disabled={isSending}
           sx={{ 
             bgcolor: '#2e7d32',
-            color: 'white',
+            color: '#fff',
             '&:hover': {
               bgcolor: '#1b5e20'
             }
@@ -1337,7 +1353,7 @@ const Voicemail: React.FC = () => {
         sx: {
           borderRadius: 2,
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-          background: '#1e1e1e', // Lighter dark background
+          background: '#1e1e1e',
           border: '1px solid rgba(255, 255, 255, 0.1)'
         }
       }}
@@ -1349,7 +1365,7 @@ const Voicemail: React.FC = () => {
         alignItems: 'center',
         justifyContent: 'center',
         fontWeight: 'bold',
-        color: 'text.primary'
+        color: '#fff'
       }}>
         {transactionStatus.status === 'pending' ? 'Confirm Transaction' : 
          transactionStatus.status === 'success' ? 'Transaction Confirmed' : 
@@ -1371,10 +1387,10 @@ const Voicemail: React.FC = () => {
               }}>
                 <CircularProgress size={50} sx={{ color: '#f7931a' }} />
               </Box>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', textAlign: 'center', color: 'text.primary' }}>
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', textAlign: 'center', color: '#fff' }}>
                 Please confirm the transaction in your wallet
               </Typography>
-              <Typography variant="body1" color="text.secondary" align="center" sx={{ maxWidth: '80%', color: 'text.primary' }}>
+              <Typography variant="body1" align="center" sx={{ maxWidth: '80%', color: '#fff' }}>
                 {transactionStatus.message}
               </Typography>
             </>
@@ -2637,11 +2653,18 @@ const Voicemail: React.FC = () => {
                                 <Button 
                                   variant="contained" 
                                   color="primary" 
-                      size="small" 
+                                  size="small" 
                                   onClick={() => handleRedeemSatoshis(voicemail)}
                                   disabled={isRedeeming}
+                                  sx={{ 
+                                    bgcolor: '#2e7d32',
+                                    color: 'white',
+                                    '&:hover': {
+                                      bgcolor: '#1b5e20'
+                                    }
+                                  }}
                                 >
-                                  {isRedeeming ? 'Redeeming...' : `Redeem ${voicemail.satoshis.toLocaleString()} Satoshis`}
+                                  {isRedeeming ? 'Redeeming...' : `Redeem ${voicemail.satoshis.toLocaleString()} Satoshis & Forget`}
                                 </Button>
                               </Box>
                             </Box>
@@ -2665,61 +2688,293 @@ const Voicemail: React.FC = () => {
       {/* Redemption Confirmation Dialog */}
       <Dialog 
         open={redeemOpen} 
-        onClose={() => !isRedeeming && setRedeemOpen(false)} // Prevent closing when redeeming
+        onClose={() => redemptionStatus.status === 'success' ? setRedeemOpen(false) : undefined}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
+            background: '#1e1e1e', // Lighter dark background
+            border: '1px solid rgba(255, 255, 255, 0.1)'
+          }
+        }}
       >
-        <DialogTitle>Redeem Satoshis</DialogTitle>
-        <DialogContent>
-          <Box>
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="body1">
-                You are about to redeem {selectedVoicemail?.satoshis} satoshis from a voicemail sent by:
-              </Typography>
-              <Box sx={{ mt: 1 }}>
-                <IdentityCard 
-                  identityKey={selectedVoicemail?.sender || ''} 
-                />
+        <DialogTitle sx={{ 
+          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          pb: 2,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontWeight: 'bold',
+          color: 'text.primary'
+        }}>
+          {redemptionStatus.status === 'pending' ? 'Redeem Satoshis & Forget Voicemail' : 
+           redemptionStatus.status === 'success' ? 'Redemption Successful' : 
+           'Redemption Failed'}
+        </DialogTitle>
+        <DialogContent sx={{ py: 4 }}>
+          {redemptionStatus.status === 'pending' && !isRedeeming && (
+            <Box>
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
+                  <strong>From:</strong>
+                </Typography>
+                <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.05)' }}>
+                  <IdentityCard 
+                    identityKey={selectedVoicemail?.sender || ''} 
+                  />
+                </Box>
               </Box>
+
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
+                  <strong>Received:</strong>
+                </Typography>
+                <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.05)', color: 'text.primary' }}>
+                  {new Date(selectedVoicemail?.timestamp || 0).toLocaleString()}
+                </Box>
+              </Box>
+
+              {selectedVoicemail?.message && (
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
+                    <strong>Message:</strong>
+                  </Typography>
+                  <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.05)', color: 'text.primary' }}>
+                    {selectedVoicemail.message}
+                  </Box>
+                </Box>
+              )}
+
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
+                  <strong>Satoshis to Redeem:</strong>
+                </Typography>
+                <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.05)', color: 'text.primary' }}>
+                  {selectedVoicemail?.satoshis.toLocaleString()} satoshis ({(selectedVoicemail?.satoshis || 0) / 100000000} BSV)
+                </Box>
+              </Box>
+
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
+                  <strong>Transaction ID:</strong>
+                </Typography>
+                <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.05)', color: 'text.primary' }}>
+                  {shortenTxId(selectedVoicemail?.id || '')}
+                </Box>
+              </Box>
+
+              <Typography variant="body2" color="text.secondary" sx={{ color: 'text.primary', mt: 2 }}>
+                This will redeem the satoshis attached to this voicemail and forget the voicemail.
+              </Typography>
             </Box>
-            <Typography variant="body2" color="text.secondary">
-              This will create a transaction that redeems the satoshis attached to this voicemail.
-            </Typography>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          {!isRedeeming && (
-            <Button onClick={() => setRedeemOpen(false)}>
-              Cancel
-            </Button>
           )}
-          <Button 
-            onClick={processRedemption} 
-            color="primary" 
-            variant="contained"
-            disabled={isRedeeming}
-            sx={{ 
-              minWidth: 140,
-              position: 'relative'
-            }}
-          >
-            {isRedeeming ? (
+          
+          {redemptionStatus.status === 'pending' && isRedeeming && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4 }}>
               <Box sx={{ 
-                display: 'flex', 
+                width: 80, 
+                height: 80, 
+                borderRadius: '50%', 
+                backgroundColor: 'rgba(247, 147, 26, 0.1)',
+                display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 1
+                mb: 3,
+                boxShadow: '0 4px 20px rgba(247, 147, 26, 0.2)',
+                border: '1px solid rgba(247, 147, 26, 0.3)'
               }}>
-                <CircularProgress 
-                  size={20} 
-                  color="inherit"
-                />
-                <Typography variant="button">
-                  Redeeming...
+                <CircularProgress size={50} sx={{ color: '#f7931a' }} />
+              </Box>
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', textAlign: 'center', color: 'text.primary' }}>
+                Redeeming Satoshis and Forgetting Voicemail
+              </Typography>
+              <Typography variant="body1" color="text.secondary" align="center" sx={{ maxWidth: '80%', color: 'text.primary', mb: 2 }}>
+                {redemptionStatus.message}
+              </Typography>
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 1,
+                mt: 2,
+                p: 2,
+                borderRadius: 1,
+                bgcolor: 'rgba(0, 0, 0, 0.2)',
+                border: '1px solid rgba(255, 255, 255, 0.1)'
+              }}>
+                <CircularProgress size={16} sx={{ color: '#f7931a' }} />
+                <Typography variant="body2" sx={{ color: 'text.primary' }}>
+                  Please wait while we process your request...
                 </Typography>
               </Box>
-            ) : (
-              'Redeem Satoshis'
-            )}
-          </Button>
+            </Box>
+          )}
+          
+          {redemptionStatus.status === 'success' && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 2 }}>
+              <Box sx={{ 
+                width: 80, 
+                height: 80, 
+                borderRadius: '50%', 
+                backgroundColor: 'rgba(46, 125, 50, 0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mb: 3
+              }}>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="#2e7d32"/>
+                </svg>
+              </Box>
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', textAlign: 'center', color: 'text.primary' }}>
+                Voicemail Redeemed Successfully!
+              </Typography>
+              <Typography variant="body1" align="center" gutterBottom sx={{ maxWidth: '80%', mb: 3, color: 'text.primary' }}>
+                Your voicemail has been redeemed and forgotten.
+              </Typography>
+              {redemptionStatus.txid && (
+                <Box sx={{ 
+                  mt: 2, 
+                  p: 2, 
+                  border: '1px solid rgba(255, 255, 255, 0.1)', 
+                  borderRadius: 1,
+                  width: '100%',
+                  maxWidth: '80%',
+                  bgcolor: 'rgba(0, 0, 0, 0.05)'
+                }}>
+                  <Typography variant="body2" sx={{ mb: 1, color: 'text.primary' }}>
+                    Transaction ID: {shortenTxId(redemptionStatus.txid)}
+                  </Typography>
+                  <Button 
+                    variant="outlined" 
+                    size="small" 
+                    fullWidth
+                    sx={{ 
+                      mt: 1,
+                      borderColor: 'rgba(46, 125, 50, 0.5)',
+                      color: '#2e7d32',
+                      '&:hover': {
+                        borderColor: '#2e7d32',
+                        backgroundColor: 'rgba(46, 125, 50, 0.05)'
+                      }
+                    }}
+                    onClick={() => window.open(`https://whatsonchain.com/tx/${redemptionStatus.txid}`, '_blank')}
+                  >
+                    View on WhatsOnChain
+                  </Button>
+                </Box>
+              )}
+            </Box>
+          )}
+          
+          {redemptionStatus.status === 'error' && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 2 }}>
+              <Box sx={{ 
+                width: 80, 
+                height: 80, 
+                borderRadius: '50%', 
+                backgroundColor: 'rgba(211, 47, 47, 0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mb: 3
+              }}>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z" fill="#d32f2f"/>
+                </svg>
+              </Box>
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', textAlign: 'center', color: 'text.primary' }}>
+                Redemption Failed
+              </Typography>
+              <Typography variant="body1" color="error" align="center" sx={{ maxWidth: '80%', color: 'text.primary' }}>
+                {redemptionStatus.message}
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ 
+          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+          pt: 2,
+          px: 3,
+          pb: 2
+        }}>
+          {redemptionStatus.status === 'pending' && !isRedeeming && (
+            <>
+              <Button 
+                onClick={() => setRedeemOpen(false)}
+                sx={{ 
+                  color: 'text.primary',
+                  '&:hover': {
+                    bgcolor: 'rgba(0, 0, 0, 0.05)'
+                  }
+                }}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={processRedemption} 
+                color="primary" 
+                variant="contained"
+                disabled={isRedeeming}
+                sx={{ 
+                  bgcolor: '#d32f2f',
+                  color: 'white',
+                  '&:hover': {
+                    bgcolor: '#b71c1c'
+                  }
+                }}
+              >
+                {isRedeeming ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CircularProgress size={20} sx={{ color: 'white' }} />
+                    Redeeming...
+                  </Box>
+                ) : (
+                  'Redeem & Forget'
+                )}
+              </Button>
+            </>
+          )}
+          {redemptionStatus.status === 'success' && (
+            <Button 
+              onClick={() => {
+                setRedeemOpen(false);
+                setSelectedVoicemail(null);
+                setRedemptionStatus({
+                  status: 'pending',
+                  message: 'Waiting for transaction confirmation...'
+                });
+              }} 
+              color="primary" 
+              variant="contained"
+              sx={{ 
+                bgcolor: '#2e7d32',
+                color: 'white',
+                '&:hover': {
+                  bgcolor: '#1b5e20'
+                }
+              }}
+            >
+              Close
+            </Button>
+          )}
+          {redemptionStatus.status === 'error' && (
+            <Button 
+              onClick={() => {
+                setRedeemOpen(false);
+                setSelectedVoicemail(null);
+                setRedemptionStatus({
+                  status: 'pending',
+                  message: 'Waiting for transaction confirmation...'
+                });
+              }} 
+              color="primary"
+              sx={{ color: 'white' }}
+            >
+              Close
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 
@@ -2803,8 +3058,8 @@ const Voicemail: React.FC = () => {
                     </Typography>
                     <IdentityCard 
                       identityKey={contactToForget.identityKey} 
-      />
-    </Box>
+                    />
+                  </Box>
                   
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="body2" color="text.secondary">
