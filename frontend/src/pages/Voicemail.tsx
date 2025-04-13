@@ -1231,6 +1231,21 @@ const Voicemail: React.FC = () => {
     }
   };
 
+  // Add handleReply function
+  const handleReply = (voicemail: VoicemailItem) => {
+    // Switch to create voicemail tab
+    setActiveTab(0);
+    // Set the recipient to the sender of the voicemail
+    setSelectedIdentity({
+      name: voicemail.senderName || 'Unknown',
+      identityKey: voicemail.sender,
+      avatarURL: '',
+      abbreviatedKey: voicemail.sender.substring(0, 8),
+      badgeIconURL: '',
+      badgeLabel: '',
+      badgeClickURL: ''
+    });
+  };
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -2665,6 +2680,23 @@ const Voicemail: React.FC = () => {
                                   }}
                                 >
                                   {isRedeeming ? 'Redeeming...' : `Redeem ${voicemail.satoshis.toLocaleString()} Satoshis & Forget`}
+                                </Button>
+                                <Button
+                                  variant="outlined"
+                                  color="primary"
+                                  size="small"
+                                  onClick={() => handleReply(voicemail)}
+                                  sx={{
+                                    borderColor: 'primary.main',
+                                    color: 'primary.main',
+                                    '&:hover': {
+                                      borderColor: 'primary.dark',
+                                      bgcolor: 'primary.main',
+                                      color: 'white'
+                                    }
+                                  }}
+                                >
+                                  Reply
                                 </Button>
                               </Box>
                             </Box>
