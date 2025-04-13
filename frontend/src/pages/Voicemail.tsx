@@ -280,7 +280,7 @@ const Voicemail: React.FC = () => {
 
     // If switching to the inbox tab, refresh the voicemails and messages
     if (newValue === 1) {
-      // fetchContacts()   
+      fetchContacts()   
     }
 
     // If switching to the contacts tab, refresh the contacts
@@ -920,10 +920,10 @@ const Voicemail: React.FC = () => {
   const fetchContacts = async () => {
     setIsLoadingContacts(true)
     try {
-
       const contactsFromBasket = await walletClient.listOutputs({
         basket: 'p2p voicemail contacts',
-        include: 'entire transactions'
+        include: 'entire transactions',
+        limit: 25
       })
 
       // Decrypt each contact
@@ -1007,7 +1007,8 @@ const Voicemail: React.FC = () => {
       // Fetch the BEEF data for the transaction
       const contactsFromBasket = await walletClient.listOutputs({
         basket: 'p2p voicemail contacts',
-        include: 'entire transactions'
+        include: 'entire transactions',
+        limit: 25
       });
 
       // Create a description for the redemption
