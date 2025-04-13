@@ -222,6 +222,17 @@ const Voicemail: React.FC = () => {
   const [forgetContactOpen, setForgetContactOpen] = useState<boolean>(false);
   const [contactToForget, setContactToForget] = useState<Identity & { txid: string } | null>(null);
 
+  // Add new state for transaction confirmation dialog
+  const [transactionConfirmOpen, setTransactionConfirmOpen] = useState<boolean>(false);
+  const [transactionStatus, setTransactionStatus] = useState<{
+    status: 'pending' | 'success' | 'error';
+    message: string;
+    txid?: string;
+  }>({
+    status: 'pending',
+    message: 'Waiting for transaction confirmation...'
+  });
+
   // Run a 1s interval for checking if MNC is running
   useAsyncEffect(async () => {
     const intervalId = setInterval(() => {
@@ -262,7 +273,7 @@ const Voicemail: React.FC = () => {
 
     // If switching to the contacts tab, refresh the contacts
     else if (newValue === 2) {
-      fetchInternalizedVoicemails()
+      fetchVoicemails()
     }
     
   }
@@ -487,6 +498,11 @@ const Voicemail: React.FC = () => {
 
     setIsSending(true)
     setConfirmSendOpen(false)
+    setTransactionConfirmOpen(true)
+    setTransactionStatus({
+      status: 'pending',
+      message: 'Waiting for transaction confirmation...'
+    })
     
     try {
       // Convert audio blob to array of numbers for encryption
@@ -561,6 +577,13 @@ const Voicemail: React.FC = () => {
       
       console.log('Voicemail sent successfully:', voicemailTransaction.txid)
       
+      // Update transaction status to success
+      setTransactionStatus({
+        status: 'success',
+        message: 'Voicemail sent successfully!',
+        txid: voicemailTransaction.txid
+      })
+      
       // Send transaction via MessageBoxClient
       await messageBoxClient.sendMessage({
         recipient: selectedIdentity.identityKey,
@@ -586,17 +609,22 @@ const Voicemail: React.FC = () => {
       // Refresh the inbox to update the count
       fetchVoicemails()
       
-      // Use NotificationModal instead of alert
-      setNotification({
-        open: true,
-        message: `Voicemail sent successfully!`,
-        type: 'success' as const,
-        title: 'Voicemail Sent',
-        link: `https://whatsonchain.com/tx/${voicemailTransaction.txid}`
-      });
+      // Don't show the notification modal since we're already showing the transaction confirmation dialog
+      // setNotification({
+      //   open: true,
+      //   message: `Voicemail sent successfully!`,
+      //   type: 'success' as const,
+      //   title: 'Voicemail Sent',
+      //   link: `https://whatsonchain.com/tx/${voicemailTransaction.txid}`
+      // });
       
     } catch (error) {
       console.error('Error sending voicemail:', error)
+      // Update transaction status to error
+      setTransactionStatus({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to send voicemail. Please try again.'
+      })
       // Use NotificationModal instead of alert with more specific error message
       setNotification({
         open: true,
@@ -1199,16 +1227,33 @@ const Voicemail: React.FC = () => {
       onClose={() => setConfirmSendOpen(false)}
       maxWidth="sm"
       fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: 2,
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
+          background: '#121212', // Solid dark background
+          border: '1px solid rgba(255, 255, 255, 0.1)'
+        }
+      }}
     >
-        <DialogTitle>Confirm Send Voicemail</DialogTitle>
-      <DialogContent>
+        <DialogTitle sx={{ 
+          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          pb: 2,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontWeight: 'bold'
+        }}>
+          Confirm Send Voicemail
+        </DialogTitle>
+      <DialogContent sx={{ py: 3 }}>
         <Box>
           <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle1" gutterBottom>
+            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
               <strong>To:</strong>
             </Typography>
-            <Box sx={{ ml: 2 }}>
-              <Box component="div" sx={{ mb: 1 }}>
+            <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.05)' }}>
+              <Box component="div" sx={{ mb: 1, color: 'text.primary' }}>
                 {selectedIdentity?.name}
               </Box>
               <IdentityCard 
@@ -1218,45 +1263,235 @@ const Voicemail: React.FC = () => {
           </Box>
 
           <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle1" gutterBottom>
+            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
               <strong>Recording:</strong>
             </Typography>
-            <Box sx={{ ml: 2 }}>
+            <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.05)' }}>
               <audio controls src={audioUrl || ''} style={{ width: '100%' }} />
             </Box>
           </Box>
 
           {message && (
             <Box sx={{ mb: 3 }}>
-              <Typography variant="subtitle1" gutterBottom>
+              <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
                 <strong>Message:</strong>
               </Typography>
-              <Box sx={{ ml: 2 }}>
+              <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.05)', color: 'text.primary' }}>
                 {message.replace(/\{[^}]*\}/g, '')}
               </Box>
             </Box>
           )}
 
           <Box>
-            <Typography variant="subtitle1" gutterBottom>
+            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', color: 'text.primary' }}>
               <strong>Attached Satoshis:</strong>
             </Typography>
-            <Box sx={{ ml: 2 }}>
+            <Box sx={{ ml: 2, p: 2, border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 1, bgcolor: 'rgba(0, 0, 0, 0.05)', color: 'text.primary' }}>
               {satoshiAmount.toLocaleString()} satoshis ({(satoshiAmount / 100000000).toFixed(8)} BSV)
             </Box>
           </Box>
         </Box>
       </DialogContent>
-      <DialogActions>
-          <Button onClick={() => setConfirmSendOpen(false)}>Cancel</Button>
+      <DialogActions sx={{ 
+        borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+        pt: 2,
+        px: 3,
+        pb: 2
+      }}>
+          <Button 
+            onClick={() => setConfirmSendOpen(false)}
+            sx={{ 
+              color: 'text.primary',
+              '&:hover': {
+                bgcolor: 'rgba(0, 0, 0, 0.05)'
+              }
+            }}
+          >
+            Cancel
+          </Button>
         <Button 
           onClick={processSendVoicemail}
-            color="primary"
+          color="primary"
           variant="contained"
           disabled={isSending}
+          sx={{ 
+            bgcolor: '#2e7d32',
+            '&:hover': {
+              bgcolor: '#1b5e20'
+            }
+          }}
           >
             {isSending ? 'Sending...' : 'Confirm Send'}
         </Button>
+      </DialogActions>
+    </Dialog>
+
+    {/* Add the transaction confirmation dialog */}
+    <Dialog 
+      open={transactionConfirmOpen} 
+      onClose={() => transactionStatus.status === 'success' ? setTransactionConfirmOpen(false) : undefined}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: 2,
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
+          background: '#121212', // Solid dark background
+          border: '1px solid rgba(255, 255, 255, 0.1)'
+        }
+      }}
+    >
+      <DialogTitle sx={{ 
+        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+        pb: 2,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontWeight: 'bold',
+        color: 'text.primary'
+      }}>
+        {transactionStatus.status === 'pending' ? 'Confirm Transaction' : 
+         transactionStatus.status === 'success' ? 'Transaction Confirmed' : 
+         'Transaction Failed'}
+      </DialogTitle>
+      <DialogContent sx={{ py: 4 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 2 }}>
+          {transactionStatus.status === 'pending' && (
+            <>
+              <Box sx={{ 
+                width: 80, 
+                height: 80, 
+                borderRadius: '50%', 
+                backgroundColor: 'rgba(247, 147, 26, 0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mb: 3
+              }}>
+                <CircularProgress size={50} sx={{ color: '#f7931a' }} />
+              </Box>
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', textAlign: 'center', color: 'text.primary' }}>
+                Please confirm the transaction in your wallet
+              </Typography>
+              <Typography variant="body1" color="text.secondary" align="center" sx={{ maxWidth: '80%', color: 'text.primary' }}>
+                {transactionStatus.message}
+              </Typography>
+            </>
+          )}
+          
+          {transactionStatus.status === 'success' && (
+            <>
+              <Box sx={{ 
+                width: 80, 
+                height: 80, 
+                borderRadius: '50%', 
+                backgroundColor: 'rgba(46, 125, 50, 0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mb: 3
+              }}>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="#2e7d32"/>
+                </svg>
+              </Box>
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', textAlign: 'center', color: 'text.primary' }}>
+                Voicemail Sent Successfully!
+              </Typography>
+              <Typography variant="body1" align="center" gutterBottom sx={{ maxWidth: '80%', mb: 3, color: 'text.primary' }}>
+                Your voicemail has been sent and confirmed on the blockchain.
+              </Typography>
+              {transactionStatus.txid && (
+                <Box sx={{ 
+                  mt: 2, 
+                  p: 2, 
+                  border: '1px solid rgba(255, 255, 255, 0.1)', 
+                  borderRadius: 1,
+                  width: '100%',
+                  maxWidth: '80%',
+                  bgcolor: 'rgba(0, 0, 0, 0.05)'
+                }}>
+                  <Typography variant="body2" sx={{ mb: 1, color: 'text.primary' }}>
+                    Transaction ID: {shortenTxId(transactionStatus.txid)}
+                  </Typography>
+                  <Button 
+                    variant="outlined" 
+                    size="small" 
+                    fullWidth
+                    sx={{ 
+                      mt: 1,
+                      borderColor: 'rgba(247, 147, 26, 0.5)',
+                      color: '#f7931a',
+                      '&:hover': {
+                        borderColor: '#f7931a',
+                        backgroundColor: 'rgba(247, 147, 26, 0.05)'
+                      }
+                    }}
+                    onClick={() => window.open(`https://whatsonchain.com/tx/${transactionStatus.txid}`, '_blank')}
+                  >
+                    View on WhatsOnChain
+                  </Button>
+                </Box>
+              )}
+            </>
+          )}
+          
+          {transactionStatus.status === 'error' && (
+            <>
+              <Box sx={{ 
+                width: 80, 
+                height: 80, 
+                borderRadius: '50%', 
+                backgroundColor: 'rgba(211, 47, 47, 0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mb: 3
+              }}>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z" fill="#d32f2f"/>
+                </svg>
+              </Box>
+              <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', textAlign: 'center', color: 'text.primary' }}>
+                Transaction Failed
+              </Typography>
+              <Typography variant="body1" color="error" align="center" sx={{ maxWidth: '80%', color: 'text.primary' }}>
+                {transactionStatus.message}
+              </Typography>
+            </>
+          )}
+        </Box>
+      </DialogContent>
+      <DialogActions sx={{ 
+        borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+        pt: 2,
+        px: 3,
+        pb: 2
+      }}>
+        {transactionStatus.status === 'success' && (
+          <Button 
+            onClick={() => setTransactionConfirmOpen(false)} 
+            color="primary" 
+            variant="contained"
+            sx={{ 
+              bgcolor: '#2e7d32',
+              '&:hover': {
+                bgcolor: '#1b5e20'
+              }
+            }}
+          >
+            Close
+          </Button>
+        )}
+        {transactionStatus.status === 'error' && (
+          <Button 
+            onClick={() => setTransactionConfirmOpen(false)} 
+            color="primary"
+            sx={{ color: 'text.primary' }}
+          >
+            Close
+          </Button>
+        )}
       </DialogActions>
     </Dialog>
 
@@ -1754,72 +1989,80 @@ const Voicemail: React.FC = () => {
                 </Box>
               </Box>
               
-              {selectedIdentity && (
-                <Box sx={{ mt: 2, position: 'relative' }}>
-                  <Paper 
-                    elevation={1} 
-                    sx={{ 
-                      p: 2, 
-                      bgcolor: 'background.paper', 
-                      position: 'relative',
-                        maxWidth: 600, 
-                        mx: 'auto',
-                        border: '1px solid',
-                        borderColor: '#2e7d32',
-                        borderRadius: 1
-                      }}
-                    >
-                      <Box sx={{ 
-                        position: 'absolute', 
-                        top: -12, 
-                        left: 16, 
-                        bgcolor: '#2e7d32', 
-                        color: 'white', 
-                        px: 1.5, 
-                        py: 0.5, 
-                        borderRadius: 1,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1,
-                        fontSize: '0.875rem',
-                        fontWeight: 'bold',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                      }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M12 4C14.21 4 16 5.79 16 8C16 10.21 14.21 12 12 12C9.79 12 8 10.21 8 8C8 5.79 9.79 4 12 4ZM12 14C16.42 14 20 15.79 20 18V20H4V18C4 15.79 7.58 14 12 14Z" fill="white"/>
+              <Box sx={{ mt: 4, position: 'relative' }}>
+                <Paper 
+                  elevation={1} 
+                  sx={{ 
+                    p: 2, 
+                    bgcolor: 'background.paper', 
+                    position: 'relative',
+                      maxWidth: 600, 
+                      mx: 'auto',
+                      border: '1px solid',
+                      borderColor: '#2e7d32',
+                      borderRadius: 1
+                    }}
+                  >
+                  <Box sx={{ 
+                    position: 'absolute', 
+                    top: -12, 
+                    left: 16, 
+                    bgcolor: '#2e7d32', 
+                    color: 'white', 
+                    px: 1.5, 
+                    py: 0.5, 
+                    borderRadius: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    fontSize: '0.875rem',
+                    fontWeight: 'bold',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                  }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M12 4C14.21 4 16 5.79 16 8C16 10.21 14.21 12 12 12C9.79 12 8 10.21 8 8C8 5.79 9.79 4 12 4ZM12 14C16.42 14 20 15.79 20 18V20H4V18C4 15.79 7.58 14 12 14Z" fill="white"/>
+                    </svg>
+                    Recipient
+                  </Box>
+                  {selectedIdentity ? (
+                    <>
+                      <IconButton 
+                        size="small" 
+                        onClick={clearSelectedIdentity}
+                        sx={{ 
+                          position: 'absolute',
+                          top: 8,
+                          right: 8,
+                          color: 'text.secondary',
+                          '&:hover': {
+                            color: 'error.main'
+                          }
+                        }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          <path d="M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
-                        Recipient
+                      </IconButton>
+                      <Typography variant="subtitle1">
+                        <strong>Name:</strong> {selectedIdentity.name}
+                      </Typography>
+                      <Box sx={{ mt: 1 }}>
+                        <strong>Identity Key:</strong>
+                        <IdentityCard 
+                          identityKey={selectedIdentity.identityKey} 
+                        />
                       </Box>
-                    <IconButton 
-                      size="small" 
-                      onClick={clearSelectedIdentity}
-                      sx={{ 
-                        position: 'absolute',
-                        top: 8,
-                        right: 8,
-                        color: 'text.secondary',
-                        '&:hover': {
-                          color: 'error.main'
-                        }
-                      }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        <path d="M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </IconButton>
-                    <Typography variant="subtitle1">
-                      <strong>Name:</strong> {selectedIdentity.name}
-                    </Typography>
-                    <Box sx={{ mt: 1 }}>
-                      <strong>Identity Key:</strong>
-                      <IdentityCard 
-                        identityKey={selectedIdentity.identityKey} 
-                      />
+                    </>
+                  ) : (
+                    <Box sx={{ py: 2, textAlign: 'center' }}>
+                      <Typography variant="body1" color="text.secondary">
+                        No recipient selected. Paste an identity key into the search field above and wait for the dropdown to appear, or choose one of your contacts.
+                      </Typography>
                     </Box>
-                  </Paper>
-                </Box>
-              )}
+                  )}
+                </Paper>
+              </Box>
             </CardContent>
           </Card>
           
