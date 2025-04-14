@@ -1633,14 +1633,15 @@ const Voicemail: React.FC = () => {
             </Box>
           </Box>
         </Box>
-
+        <Typography variant="body1" color="text.secondary">
+          Thank you for testing the P2P Voicemail hackathon project. Only experiment with tiny micropayments that you're willing to lose.<br /><br />
+        </Typography>
         <Tabs
           value={activeTab}
           onChange={handleTabChange}
           aria-label="voicemail tabs"
           variant="scrollable"
-          scrollButtons="auto"
-          allowScrollButtonsMobile
+          scrollButtons="auto"          allowScrollButtonsMobile
           sx={{
             mb: 3,
             '& .MuiTabs-indicator': {
@@ -2316,7 +2317,7 @@ const Voicemail: React.FC = () => {
                     value={satoshiAmount}
                     onChange={(_, value) => setSatoshiAmount(value as number)}
                     min={1}
-                    max={1000000}
+                    max={100000}
                     step={1000}
                     valueLabelDisplay="auto"
                     valueLabelFormat={(value) => `${value.toLocaleString()} sats`}
@@ -2328,13 +2329,13 @@ const Voicemail: React.FC = () => {
                     value={satoshiAmount}
                     onChange={(e) => {
                       const value = parseInt(e.target.value);
-                      if (!isNaN(value) && value >= 1 && value <= 100000000) {
+                      if (!isNaN(value) && value >= 1 && value <= 100000) {
                         setSatoshiAmount(value);
                       }
                     }}
                     inputProps={{
                       min: 1,
-                      max: 100000000,
+                      max: 100000,
                       step: 1
                     }}
                     fullWidth
