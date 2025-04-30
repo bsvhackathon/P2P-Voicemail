@@ -913,7 +913,7 @@ const VoicemailPage: React.FC = () => {
             </IconButton>
             <IconButton
               component="a"
-              href="https://github.com/yourusername/p2p-voicemail"
+              href="https://github.com/bsvhackathon/P2P-Voicemail"
               target="_blank"
               rel="noopener noreferrer"
               sx={{
