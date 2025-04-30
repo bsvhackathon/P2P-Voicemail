@@ -927,7 +927,9 @@ const VoicemailPage: React.FC = () => {
             </IconButton>
           </Box>
         </Box>
-
+        <Typography variant="body1" color="text.secondary">
+          Thank you for testing the P2P Voicemail hackathon project. Only experiment with tiny micropayments and data that you're willing to lose.<br /><br />
+        </Typography>
         <VoicemailTabs
           contactsCount={contacts?.length || 0}
           onCreateVoicemail={() => (
