@@ -267,6 +267,29 @@ const Voicemail: React.FC = () => {
     }
   }, [])
 
+  // Clear message box messages on component mount
+  // useEffect(() => {
+  //   const clearMessages = async () => {
+  //     try {
+  //       const messages = await messageBoxClient.listMessages({
+  //         messageBox: 'p2p voicemail rebuild new messagebox'
+  //       })
+        
+  //       if (messages.length > 0) {
+  //         const messageIds = messages.map(msg => msg.messageId)
+  //         await messageBoxClient.acknowledgeMessage({
+  //           messageIds
+  //         })
+  //         console.log('Cleared', messages.length, 'messages from message box')
+  //       }
+  //     } catch (error) {
+  //       console.error('Error clearing messages:', error)
+  //     }
+  //   }
+
+  //   clearMessages()
+  // }, [])
+
   // Fetch voicemails when the component first loads
   useEffect(() => {
     fetchVoicemails()
@@ -293,27 +316,26 @@ const Voicemail: React.FC = () => {
   // Fetch voicemails from the user's basket
   const fetchVoicemails = async () => {
     setIsLoadingVoicemails(true)
+
+          // List messages from p2p voicemail message box
+          const messages = await messageBoxClient.listMessages({
+            messageBox: 'p2p voicemail rebuild new messagebox'
+          })
+          console.log('p2p voicemail rebuild new messagebox messages:', messages)
+          //set to state for checking when redeeming in case message is still there so i may be acknowledged
     try {
-      // List messages from p2p voicemail message box
-      const messages = await messageBoxClient.listMessages({
-        messageBox: 'p2p voicemail rebuild new messagebox'
-      })
-      console.log('p2p voicemail rebuild new messagebox messages:', messages)
-      //set to state for checking when redeeming in case message is still there so i may be acknowledged
-      setMessageBoxMessages(messages)
 
-      const internalizedOutputs = await walletClient.listOutputs({
-        basket: 'internalize to new basket',
-        include: 'entire transactions',
-        limit: 100 // Add a high limit to get all outputs
-      })
+      //skip while not needed here 
+      // const internalizedOutputs = await walletClient.listOutputs({
+      //   basket: 'internalize to new basket',
+      //   include: 'entire transactions',
+      //   limit: 100 // Add a high limit to get all outputs
+      // })
 
-
-
-      const internalizedTxIds = new Set(
-        internalizedOutputs.outputs.map((output) => output.outpoint.split('.')[0])
-      );
-
+      // const internalizedTxIds = new Set(
+      //   internalizedOutputs.outputs.map((output) => output.outpoint.split('.')[0])
+      // );
+      // console.log('internalizedTxIds:', internalizedTxIds)
       // Acknowledge messages that have already been internalized
       await Promise.all(
         messages.map(async (msg) => {
@@ -343,15 +365,16 @@ const Voicemail: React.FC = () => {
             await walletClient.internalizeAction(args);
 
             // If this message's transaction is already internalized, acknowledge it
-            if (internalizedTxIds.has(txid)) {
-              await messageBoxClient.acknowledgeMessage({
-                messageIds: [msg.messageId]
-              });
-              console.log('Acknowledged message:', msg.messageId);
-            }
+            // acknowledging after displaying
+            // if (internalizedTxIds.has(txid)) {
+            //   await messageBoxClient.acknowledgeMessage({
+            //     messageIds: [msg.messageId]
+            //   });
+            //   console.log('Acknowledged message:', msg.messageId);
+            // }
           } catch (error) {
             console.error('Error processing message for acknowledgment:', error);
-          }
+          } 
         })
       );
 
@@ -361,6 +384,8 @@ const Voicemail: React.FC = () => {
     } catch (error) {
       console.error('Error fetching voicemails:', error)
       setIsLoadingVoicemails(false)
+      //fetch again if error 
+      fetchVoicemails()
     }
   }
 
@@ -502,20 +527,14 @@ const Voicemail: React.FC = () => {
     setConfirmSendOpen(true);
   };
 
-  // New function to handle the actual sending
-  const processSendVoicemail = async () => {
-    if (!selectedIdentity || !audioBlob) {
-      setConfirmSendOpen(false)
-      return
+  // New function to handle sending voicemail to someone else
+  const processSendVoicemailToSomeoneElse = async () => {
+    if (!audioBlob) {
+      throw new Error('No audio recording found')
     }
-
-    setIsSending(true)
-    setConfirmSendOpen(false)
-    setTransactionConfirmOpen(true)
-    setTransactionStatus({
-      status: 'pending',
-      message: 'Waiting for transaction confirmation...'
-    })
+    if (!selectedIdentity) {
+      throw new Error('No recipient selected')
+    }
 
     try {
       // Convert audio blob to array of numbers for encryption
@@ -555,7 +574,6 @@ const Voicemail: React.FC = () => {
 
       // Get the sender's public key
       const keyResult = await walletClient.getPublicKey({ identityKey: true })
-      console.log(keyResult.publicKey + " = senderIdentity")
       if (!keyResult || !keyResult.publicKey) {
         throw new Error('Failed to get sender public key')
       }
@@ -579,6 +597,7 @@ const Voicemail: React.FC = () => {
         outputs: [{
           lockingScript: bitcoinOutputScript.toHex(),
           satoshis: satoshiAmount,
+          basket: 'internalize to new basket',
           outputDescription: `Voicemail to ${selectedIdentity.name}`
         }],
         options: {
@@ -621,17 +640,8 @@ const Voicemail: React.FC = () => {
 
       // Refresh the inbox to update the count
       fetchVoicemails()
-      //sen internalized loading to true
+      // Set internalized loading to true
       setIsLoadingInternalized(true)
-
-      // Don't show the notification modal since we're already showing the transaction confirmation dialog
-      // setNotification({
-      //   open: true,
-      //   message: `Voicemail sent successfully!`,
-      //   type: 'success' as const,
-      //   title: 'Voicemail Sent',
-      //   link: `https://whatsonchain.com/tx/${voicemailTransaction.txid}`
-      // });
 
     } catch (error) {
       console.error('Error sending voicemail:', error)
@@ -649,6 +659,161 @@ const Voicemail: React.FC = () => {
       });
     } finally {
       setIsSending(false)
+    }
+  }
+
+  // New function to handle sending voicemail to self
+  const processSendVoicemailToSelf = async () => {
+    // TODO: Implement sending voicemail to self
+    console.log('Sending voicemail to self')
+    if (!audioBlob) {
+      throw new Error('No audio recording found')
+    }
+    if (!selectedIdentity) {
+      throw new Error('No recipient selected')
+    }
+
+    try {
+      // Convert audio blob to array of numbers for encryption
+      const audioArrayBuffer = await audioBlob.arrayBuffer()
+      const audioArray = Array.from(new Uint8Array(audioArrayBuffer))
+
+      // Create a timestamp for when the voicemail was sent
+      const timestamp = Date.now()
+
+      // Encrypt the audio data with the recipient's identity key
+      const encryptedAudio = await walletClient.encrypt({
+        plaintext: audioArray,
+        protocolID: [0, 'p2p voicemail rebuild'],
+        keyID: '1',
+        counterparty: 'self'
+      })
+
+      // Encrypt the message if provided
+      let encryptedMessage: number[] | undefined = undefined
+      if (message.trim()) {
+        const encryptedMessageData = await walletClient.encrypt({
+          plaintext: Utils.toArray(message, 'utf8'),
+          protocolID: [0, 'p2p voicemail rebuild'],
+          keyID: '1',
+          counterparty: 'self'
+        })
+        encryptedMessage = encryptedMessageData.ciphertext
+      }
+
+      // Encrypt the timestamp
+      const encryptedTimestamp = await walletClient.encrypt({
+        plaintext: Utils.toArray(timestamp.toString(), 'utf8'),
+        protocolID: [0, 'p2p voicemail rebuild'],
+        keyID: '1',
+        counterparty: 'self'
+      })
+
+      // Get the sender's public key
+      const keyResult = await walletClient.getPublicKey({ identityKey: true })
+      if (!keyResult || !keyResult.publicKey) {
+        throw new Error('Failed to get sender public key')
+      }
+
+      // Create a PushDrop transaction with the encrypted voicemail
+      const pushdrop = new PushDrop(walletClient)
+      const bitcoinOutputScript = await pushdrop.lock(
+        [
+          Utils.toArray(keyResult.publicKey, 'utf8'), // Sender's public key
+          encryptedAudio.ciphertext, // Encrypted audio data
+          encryptedTimestamp.ciphertext, // Encrypted timestamp
+          ...(encryptedMessage ? [encryptedMessage] : []) // Add encrypted message if it exists
+        ],
+        [0, 'p2p voicemail rebuild'],
+        '1',
+        'self'  // Use recipient's key instead of 'self'
+      )
+
+      // Create the transaction with the encrypted voicemail
+      const voicemailTransaction = await walletClient.createAction({
+        outputs: [{
+          lockingScript: bitcoinOutputScript.toHex(),
+          satoshis: satoshiAmount,
+          basket: 'p2p voicemail to self',
+          outputDescription: `Voicemail to ${selectedIdentity.name}`
+        }],
+        options: {
+          randomizeOutputs: false,
+          acceptDelayedBroadcast: false
+        },
+        description: `Send voicemail to ${selectedIdentity.name}`
+      })
+
+      console.log('Voicemail sent successfully:', voicemailTransaction.txid)
+
+      // Update transaction status to success
+      setTransactionStatus({
+        status: 'success',
+        message: 'Voicemail sent successfully!',
+        txid: voicemailTransaction.txid
+      })
+
+      // no messagebox message if sent to self 
+
+      // Reset form after successful send
+      setSelectedIdentity(null)
+      setAudioBlob(null)
+      setAudioUrl(null)
+      setRecordingTime(0)
+      setMessage('')
+      setSatoshiAmount(1)
+
+      // Refresh the inbox to update the count
+      fetchVoicemails()
+      // Set internalized loading to true
+      setIsLoadingInternalized(true)
+
+    } catch (error) {
+      console.error('Error sending voicemail:', error)
+      // Update transaction status to error
+      setTransactionStatus({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to send voicemail. Please try again.'
+      })
+      // Use NotificationModal instead of alert with more specific error message
+      setNotification({
+        open: true,
+        message: error instanceof Error ? error.message : 'Failed to send voicemail. Please try again.',
+        type: 'error',
+        title: 'Error'
+      });
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  // Process sending voicemail
+  const processSendVoicemail = async () => {
+    if (!selectedIdentity || !audioBlob) {
+      setConfirmSendOpen(false)
+      return
+    }
+
+    setIsSending(true)
+    setConfirmSendOpen(false)
+    setTransactionConfirmOpen(true)
+    setTransactionStatus({
+      status: 'pending',
+      message: 'Waiting for transaction confirmation...'
+    })
+
+    // Get the sender's public key
+    const keyResult = await walletClient.getPublicKey({ identityKey: true })
+    console.log(keyResult.publicKey + " = senderIdentity")
+    if (!keyResult || !keyResult.publicKey) {
+      throw new Error('Failed to get sender public key')
+    }
+
+    if (keyResult.publicKey === selectedIdentity.identityKey) {
+      processSendVoicemailToSelf()
+    } else {
+      //send to someone else and use messagebox 
+      processSendVoicemailToSomeoneElse()
     }
   }
 
@@ -1108,8 +1273,8 @@ const Voicemail: React.FC = () => {
 
   // Add new function to fetch internalized voicemails
   const fetchInternalizedVoicemails = async () => {
+    setIsLoadingInternalized(true);
     try {
-      setIsLoadingInternalized(true);
       const voicemailsFromBasket = await walletClient.listOutputs({
         basket: 'internalize to new basket',
         include: 'entire transactions',
@@ -1117,105 +1282,28 @@ const Voicemail: React.FC = () => {
       });
       console.log('voicemailsFromBasket', voicemailsFromBasket);
 
+      const voicemailsFromSelf = await walletClient.listOutputs({
+        basket: 'p2p voicemail to self',
+        include: 'entire transactions',
+        limit: 1000 // Increased limit to get all voicemails
+      });
+      console.log('voicemailsFromSelf', voicemailsFromSelf);
+
       if (!voicemailsFromBasket || !voicemailsFromBasket.outputs) {
-        setInternalizedVoicemails([]);
+        console.log('No voicemails found in basket');
         return;
       }
 
-      const processedVoicemails = await Promise.all(
-        voicemailsFromBasket.outputs.map(async (output: any) => {
+      // Process both regular internalized voicemails and self-sent voicemails
+      const processedRegularVoicemails = await Promise.all(
+        voicemailsFromBasket.outputs.map(async (output) => {
           try {
-            const txId = output.outpoint.split('.')[0];
-            console.log('Processing transaction:', txId);
-
-            const tx = Transaction.fromBEEF(voicemailsFromBasket.BEEF as number[], txId);
-
-            if (!tx || !tx.outputs || !tx.outputs[0]) {
-              console.error('Invalid transaction structure for txId:', txId);
-              return null;
+            const voicemailItem = await processVoicemailOutput(output, voicemailsFromBasket.BEEF as number[], false);
+            if (voicemailItem) {
+              console.log('Successfully processed internalized voicemail:', voicemailItem);
+              return voicemailItem;
             }
-
-            const lockingScript = tx.outputs[0].lockingScript;
-            const decodedVoicemail = PushDrop.decode(lockingScript);
-
-            if (!decodedVoicemail || !decodedVoicemail.fields || decodedVoicemail.fields.length < 2) {
-              console.error('Invalid PushDrop data structure for txId:', txId);
-              return null;
-            }
-
-            // Get sender from first field
-            const sender = Utils.toUTF8(decodedVoicemail.fields[0]);
-            console.log('Processing voicemail from sender:', sender);
-
-            const encryptedAudio = decodedVoicemail.fields[1];
-
-            // Decrypt the audio data with the sender's key
-            let decryptedAudioData;
-
-            console.log('Attempting to decrypt audio as recipient');
-            decryptedAudioData = await walletClient.decrypt({
-              ciphertext: encryptedAudio,
-              protocolID: [0, 'p2p voicemail rebuild'],
-              keyID: '1',
-              counterparty: sender  // Changed from sender to 'self' since we are the recipient
-            });
-            console.log('Successfully decrypted audio');
-
-
-            // Convert to audio format
-            const audioBlob = new Blob([new Uint8Array(decryptedAudioData.plaintext)], { type: 'audio/wav' });
-            const audioUrl = URL.createObjectURL(audioBlob);
-
-            // Check if timestamp field exists (field index 2)
-            let timestamp = Date.now(); // Default to current time if no timestamp
-            if (decodedVoicemail.fields.length > 2) {
-              try {
-                const encryptedTimestamp = decodedVoicemail.fields[2];
-                console.log('Attempting to decrypt timestamp');
-                const decryptedTimestampData = await walletClient.decrypt({
-                  ciphertext: encryptedTimestamp,
-                  protocolID: [0, 'p2p voicemail rebuild'],
-                  keyID: '1',
-                  counterparty: sender  // Changed from sender to 'self'
-                });
-                timestamp = parseInt(Utils.toUTF8(decryptedTimestampData.plaintext), 10);
-                console.log('Successfully decrypted timestamp:', timestamp);
-              } catch (timestampError) {
-                console.warn('Error decrypting timestamp:', timestampError);
-              }
-            }
-
-            // Check if message field exists (field index 3)
-            let decryptedMessage = '';
-            if (decodedVoicemail.fields.length > 3 && decodedVoicemail.fields[3]) {
-              try {
-                const encryptedMessage = decodedVoicemail.fields[3];
-                console.log('Attempting to decrypt message');
-                const decryptedMessageData = await walletClient.decrypt({
-                  ciphertext: encryptedMessage,
-                  protocolID: [0, 'p2p voicemail rebuild'],
-                  keyID: '1',
-                  counterparty: sender  // Changed from sender to 'self'
-                });
-                decryptedMessage = Utils.toUTF8(decryptedMessageData.plaintext);
-                console.log('Successfully decrypted message:', decryptedMessage);
-              } catch (messageError) {
-                console.warn('Error decrypting message:', messageError);
-              }
-            }
-
-            const voicemailItem: VoicemailItem = {
-              id: txId,
-              sender,
-              timestamp,
-              satoshis: tx.outputs[0].satoshis || 0,
-              audioUrl,
-              message: decryptedMessage,
-              lockingScript: lockingScript.toHex()
-            };
-
-            console.log('Successfully processed voicemail:', voicemailItem);
-            return voicemailItem;
+            return null;
           } catch (error) {
             console.error('Error processing internalized voicemail:', error);
             return null;
@@ -1223,18 +1311,165 @@ const Voicemail: React.FC = () => {
         })
       );
 
-      // Filter out any null results and sort by timestamp
-      const validVoicemails = processedVoicemails.filter((voicemail): voicemail is VoicemailItem => voicemail !== null);
-      console.log('Valid voicemails found:', validVoicemails.length);
+      const processedSelfVoicemails = await Promise.all(
+        (voicemailsFromSelf?.outputs || []).map(async (output) => {
+          try {
+            const voicemailItem = await processVoicemailOutput(output, voicemailsFromSelf.BEEF as number[], true);
+            if (voicemailItem) {
+              console.log('Successfully processed self-sent voicemail:', voicemailItem);
+              return voicemailItem;
+            }
+            return null;
+          } catch (error) {
+            console.error('Error processing self-sent voicemail:', error);
+            return null;
+          }
+        })
+      );
 
-      // Sort voicemails using current sort settings
-      const sortedVoicemails = sortVoicemails(validVoicemails, sortField, sortOrder);
+      // Filter out null results and combine both lists
+      const validRegularVoicemails = processedRegularVoicemails.filter((voicemail): voicemail is VoicemailItem => voicemail !== null);
+      const validSelfVoicemails = processedSelfVoicemails.filter((voicemail): voicemail is VoicemailItem => voicemail !== null);
+      
+      console.log('Valid regular voicemails found:', validRegularVoicemails.length);
+      console.log('Valid self-sent voicemails found:', validSelfVoicemails.length);
+
+      // Combine and sort all voicemails
+      const allValidVoicemails = [...validRegularVoicemails, ...validSelfVoicemails];
+      const sortedVoicemails = sortVoicemails(allValidVoicemails, sortField, sortOrder);
 
       setInternalizedVoicemails(sortedVoicemails);
+
+      // After successfully processing and displaying voicemails, acknowledge the messages
+      //get messageboxmessages and acknowledge the ones that displayed 
+      const messages = await messageBoxClient.listMessages({
+        messageBox: 'p2p voicemail rebuild new messagebox'
+      })
+      console.log('p2p voicemail rebuild new messagebox messages:', messages)
+
+      if (messages.length > 0) {
+        try {
+          // Only acknowledge messages that exist in our processed voicemails
+          const messageIdsToAcknowledge = messages
+            .filter(msg => allValidVoicemails.some(v => v.id === msg.messageId))
+            .map(msg => msg.messageId);
+
+          if (messageIdsToAcknowledge.length > 0) {
+            console.log('Acknowledging messages:', messageIdsToAcknowledge);
+            await messageBoxClient.acknowledgeMessage({
+              messageIds: messageIdsToAcknowledge
+            });
+            console.log('Acknowledged', messageIdsToAcknowledge.length, 'messages after successful processing');
+            
+            // Only remove the acknowledged messages from the state
+            // setMessageBoxMessages(prev => prev.filter(msg => !messageIdsToAcknowledge.includes(msg.messageId)));
+          }
+        } catch (error) {
+          console.error('Error acknowledging messages:', error);
+        }
+      }
+
     } catch (error) {
       console.error('Error fetching internalized voicemails:', error);
     } finally {
       setIsLoadingInternalized(false);
+    }
+  };
+
+  const processVoicemailOutput = async (output: any, beefData: number[], isSelf: boolean = false): Promise<VoicemailItem | null> => {
+    try {
+      const txId = output.outpoint.split('.')[0];
+      console.log('Processing transaction:', txId);
+
+      const tx = Transaction.fromBEEF(beefData, txId);
+
+      if (!tx || !tx.outputs || !tx.outputs[0]) {
+        console.error('Invalid transaction structure for txId:', txId);
+        return null;
+      }
+
+      const lockingScript = tx.outputs[0].lockingScript;
+      const decodedVoicemail = PushDrop.decode(lockingScript);
+
+      if (!decodedVoicemail || !decodedVoicemail.fields || decodedVoicemail.fields.length < 2) {
+        console.error('Invalid PushDrop data structure for txId:', txId);
+        return null;
+      }
+
+      // Get sender from first field
+      const sender = Utils.toUTF8(decodedVoicemail.fields[0]);
+      console.log('Processing voicemail from sender:', sender);
+
+      const encryptedAudio = decodedVoicemail.fields[1];
+
+      // Decrypt the audio data with the sender's key
+      let decryptedAudioData;
+
+      console.log('Attempting to decrypt audio as recipient');
+      decryptedAudioData = await walletClient.decrypt({
+        ciphertext: encryptedAudio,
+        protocolID: [0, 'p2p voicemail rebuild'],
+        keyID: '1',
+        counterparty: isSelf ? 'self' : sender
+      });
+      console.log('Successfully decrypted audio');
+
+      // Convert to audio format
+      const audioBlob = new Blob([new Uint8Array(decryptedAudioData.plaintext)], { type: 'audio/wav' });
+      const audioUrl = URL.createObjectURL(audioBlob);
+
+      // Check if timestamp field exists (field index 2)
+      let timestamp = Date.now(); // Default to current time if no timestamp
+      if (decodedVoicemail.fields.length > 2) {
+        try {
+          const encryptedTimestamp = decodedVoicemail.fields[2];
+          console.log('Attempting to decrypt timestamp');
+          const decryptedTimestampData = await walletClient.decrypt({
+            ciphertext: encryptedTimestamp,
+            protocolID: [0, 'p2p voicemail rebuild'],
+            keyID: '1',
+            counterparty: isSelf ? 'self' : sender
+          });
+          timestamp = parseInt(Utils.toUTF8(decryptedTimestampData.plaintext), 10);
+          console.log('Successfully decrypted timestamp:', timestamp);
+        } catch (timestampError) {
+          console.warn('Error decrypting timestamp:', timestampError);
+        }
+      }
+
+      // Check if message field exists (field index 3)
+      let decryptedMessage = '';
+      if (decodedVoicemail.fields.length > 3 && decodedVoicemail.fields[3]) {
+        try {
+          const encryptedMessage = decodedVoicemail.fields[3];
+          console.log('Attempting to decrypt message');
+          const decryptedMessageData = await walletClient.decrypt({
+            ciphertext: encryptedMessage,
+            protocolID: [0, 'p2p voicemail rebuild'],
+            keyID: '1',
+            counterparty: isSelf ? 'self' : sender
+          });
+          decryptedMessage = Utils.toUTF8(decryptedMessageData.plaintext);
+          console.log('Successfully decrypted message:', decryptedMessage);
+        } catch (messageError) {
+          console.warn('Error decrypting message:', messageError);
+        }
+      }
+
+      const voicemailItem: VoicemailItem = {
+        id: txId,
+        sender,
+        timestamp,
+        satoshis: tx.outputs[0].satoshis || 0,
+        audioUrl,
+        message: decryptedMessage,
+        lockingScript: lockingScript.toHex()
+      };
+
+      return voicemailItem;
+    } catch (error) {
+      console.error('Error processing voicemail output:', error);
+      return null;
     }
   };
 

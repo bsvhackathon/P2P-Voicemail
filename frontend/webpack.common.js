@@ -63,6 +63,9 @@ module.exports = {
     extensions: ['.ts', '.tsx', '.js', '.jsx'],
     fallback: {
       fs: false
+    },
+    alias: {
+      '@': path.resolve(__dirname, 'src')
     }
   }
 }
