@@ -116,7 +116,8 @@ export const Archived: React.FC<ArchivedProps> = ({ archivedVoicemails, walletCl
         }],
         outputs: [],
         options: {
-          randomizeOutputs: false
+          randomizeOutputs: false,
+          acceptDelayedBroadcast: false
         }
       });
 

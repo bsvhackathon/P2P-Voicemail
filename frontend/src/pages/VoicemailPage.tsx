@@ -98,7 +98,7 @@ const VoicemailPage: React.FC = () => {
       }).catch(error => {
         console.error('Error checking for MetaNet Client:', error)
       })
-    }, 100000)
+    }, 3000)
 
     // Return a cleanup function
     return () => {

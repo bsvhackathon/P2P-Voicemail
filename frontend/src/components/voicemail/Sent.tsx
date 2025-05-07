@@ -118,7 +118,8 @@ export const Sent: React.FC<SentProps> = ({ sentVoicemails, walletClient, onVoic
         }],
         outputs: [],
         options: {
-          randomizeOutputs: false
+          randomizeOutputs: false,
+          acceptDelayedBroadcast: false
         }
       });
 

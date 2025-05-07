@@ -285,7 +285,8 @@ export const Inbox: React.FC<InboxProps> = ({
           )).toHex()
         }],
         options: {
-          randomizeOutputs: false
+          randomizeOutputs: false,
+          acceptDelayedBroadcast: false
         }
       });
 
