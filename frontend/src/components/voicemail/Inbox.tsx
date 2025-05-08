@@ -271,7 +271,7 @@ export const Inbox: React.FC<InboxProps> = ({
         outputs: [{
           satoshis: 2,
           basket: 'p2p voicemail rebuild archived',
-          outputDescription: `Archive voicemail from ${voicemail.sender}`,
+          outputDescription: `Archive voicemail`,
           lockingScript: (await new PushDrop(walletClient).lock(
             [
               encryptedSender.ciphertext,

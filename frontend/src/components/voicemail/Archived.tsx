@@ -51,11 +51,14 @@ export const Archived: React.FC<ArchivedProps> = ({ archivedVoicemails, walletCl
   const [notification, setNotification] = useState<{
     open: boolean;
     message: string;
-    severity: 'success' | 'error';
+    type: 'success' | 'error' | 'info';
+    title: string;
+    link?: string;
   }>({
     open: false,
     message: '',
-    severity: 'success',
+    type: 'info',
+    title: 'Info'
   });
 
   const [isForgetting, setIsForgetting] = useState<string | null>(null);
@@ -134,7 +137,7 @@ export const Archived: React.FC<ArchivedProps> = ({ archivedVoicemails, walletCl
         'self',
         'all',
         false,
-        1,
+        2,
         LockingScript.fromHex(voicemail.lockingScript)
       );
 
@@ -170,14 +173,17 @@ export const Archived: React.FC<ArchivedProps> = ({ archivedVoicemails, walletCl
       setNotification({
         open: true,
         message: 'Voicemail forgotten successfully',
-        severity: 'success',
+        type: 'success',
+        title: 'Voicemail Forgotten',
+        link: `https://whatsonchain.com/tx/${signResult.txid}`
       });
     } catch (error) {
       console.error('Error forgetting voicemail:', error);
       setNotification({
         open: true,
         message: 'Failed to forget voicemail',
-        severity: 'error',
+        type: 'error',
+        title: 'Error'
       });
     } finally {
       setIsForgetting(null);
@@ -425,8 +431,9 @@ export const Archived: React.FC<ArchivedProps> = ({ archivedVoicemails, walletCl
         open={notification.open}
         onClose={() => setNotification({ ...notification, open: false })}
         message={notification.message}
-        type={notification.severity}
-        title="Voicemail Forgotten"
+        type={notification.type}
+        title={notification.title}
+        link={notification.link}
       />
     </>
   );

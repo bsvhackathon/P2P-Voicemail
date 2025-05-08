@@ -373,7 +373,7 @@ const VoicemailSteps: React.FC<VoicemailStepsProps> = ({ walletClient, onVoicema
           lockingScript: bitcoinOutputScript.toHex(),
           satoshis: satoshis,
           basket: 'internalize to new basket',
-          outputDescription: `Voicemail to ${selectedIdentity.identityKey}`
+          outputDescription: `Send Voicemail`
         });
 
         // If saveCopy is checked, add an output for the sent basket
@@ -387,8 +387,8 @@ const VoicemailSteps: React.FC<VoicemailStepsProps> = ({ walletClient, onVoicema
           });
 
           // Encrypt the sender for the sent basket
-          const encryptedSender = await walletClient.encrypt({
-            plaintext: Array.from(Buffer.from(keyResult.publicKey, 'utf8')),
+          const encryptedRecipient = await walletClient.encrypt({
+            plaintext: Array.from(Buffer.from(selectedIdentity.identityKey, 'utf8')),
             protocolID: [0, 'p2p voicemail rebuild sent'],
             keyID: '1',
             counterparty: 'self'
@@ -416,7 +416,7 @@ const VoicemailSteps: React.FC<VoicemailStepsProps> = ({ walletClient, onVoicema
           // Create a separate output for the sent basket
           const sentBitcoinOutputScript = await pushdrop.lock(
             [
-              encryptedSender.ciphertext, // Encrypted sender
+              encryptedRecipient.ciphertext, // Encrypted sender
               sentEncryptedAudio.ciphertext, // Re-encrypted audio data
               sentEncryptedTimestamp.ciphertext, // Re-encrypted timestamp
               ...(sentEncryptedMessage ? [sentEncryptedMessage.ciphertext] : []) // Add re-encrypted message if it exists
@@ -430,7 +430,7 @@ const VoicemailSteps: React.FC<VoicemailStepsProps> = ({ walletClient, onVoicema
             lockingScript: sentBitcoinOutputScript.toHex(),
             satoshis: 1,
             basket: 'p2p voicemail rebuild sent',
-            outputDescription: `Sent voicemail to ${selectedIdentity.identityKey}`
+            outputDescription: `Sent voicemail`
           });
         }
 
